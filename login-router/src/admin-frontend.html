@@ -111,6 +111,7 @@
 <div id="mainView" style="display:none">
   <h1>Cerberus Admin</h1>
   <div class="nav-links">
+    <a href="/approve">Approve</a>
     <a href="/audit">Audit Log</a>
     <a href="#" onclick="doLogout()">Logout</a>
   </div>
@@ -137,11 +138,10 @@
       <label>Chat ID</label>
       <input type="text" id="settingTgChat" placeholder="123456789" />
     </div>
-    <button class="btn" onclick="saveTelegram()">Save</button>
-    <button class="btn" onclick="testTelegram()">Test</button>
+    <button class="btn btn-primary" id="tgTestSaveBtn" onclick="testAndSaveTelegram()">Test & Save</button>
   </div>
   <p style="font-size:0.78rem;color:#484f58;margin-top:-8px;margin-bottom:16px;">
-    Used for unlock reminders and login approval notifications. <a href="/approve" style="color:#58a6ff;">Open Approve Page</a>
+    Used for unlock reminders and login approval notifications.
   </p>
 
   <!-- Admin Password -->
@@ -254,12 +254,80 @@
   </div>
 </div>
 
+<!-- Confirm Modal (replaces browser confirm()) -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h2 id="confirmTitle">Confirm</h2>
+    <p id="confirmText" style="font-size:0.85rem;color:#8b949e;margin-bottom:4px;"></p>
+    <div class="modal-actions">
+      <button class="btn" id="confirmCancelBtn">Cancel</button>
+      <button class="btn btn-danger" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt Modal (replaces browser prompt(), with password input) -->
+<div class="modal-bg" id="promptModal">
+  <div class="modal">
+    <h2 id="promptTitle">Input</h2>
+    <p id="promptText" style="font-size:0.85rem;color:#8b949e;margin-bottom:12px;"></p>
+    <div class="form-group">
+      <input type="password" id="promptInput" placeholder="" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="promptCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="promptOkBtn">OK</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let token = sessionStorage.getItem('adminToken') || '';
 
 function esc(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// --- Modal helpers (replace browser confirm/prompt) ---
+
+function showConfirm(title, text, okLabel) {
+  return new Promise((resolve) => {
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmText').textContent = text;
+    const okBtn = document.getElementById('confirmOkBtn');
+    okBtn.textContent = okLabel || 'Confirm';
+    document.getElementById('confirmModal').classList.add('show');
+    function cleanup() {
+      document.getElementById('confirmModal').classList.remove('show');
+      okBtn.onclick = null;
+      document.getElementById('confirmCancelBtn').onclick = null;
+    }
+    okBtn.onclick = () => { cleanup(); resolve(true); };
+    document.getElementById('confirmCancelBtn').onclick = () => { cleanup(); resolve(false); };
+  });
+}
+
+function showPrompt(title, text, placeholder) {
+  return new Promise((resolve) => {
+    document.getElementById('promptTitle').textContent = title;
+    document.getElementById('promptText').textContent = text;
+    const input = document.getElementById('promptInput');
+    input.value = '';
+    input.placeholder = placeholder || '';
+    document.getElementById('promptModal').classList.add('show');
+    input.focus();
+    function cleanup() {
+      document.getElementById('promptModal').classList.remove('show');
+      document.getElementById('promptOkBtn').onclick = null;
+      document.getElementById('promptCancelBtn').onclick = null;
+      input.onkeydown = null;
+    }
+    function submit() { cleanup(); resolve(input.value || null); }
+    document.getElementById('promptOkBtn').onclick = submit;
+    input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+    document.getElementById('promptCancelBtn').onclick = () => { cleanup(); resolve(null); };
+  });
 }
 
 function api(method, path, body) {
@@ -520,24 +588,45 @@ async function saveSettings() {
   }
 }
 
-async function saveTelegram() {
+async function testAndSaveTelegram() {
   const tgToken = document.getElementById('settingTgToken').value.trim();
   const tgChat = document.getElementById('settingTgChat').value.trim();
+  if (!tgToken || !tgChat) {
+    showMsg('mainMsg', 'Bot Token and Chat ID are both required', 'error');
+    return;
+  }
+  const btn = document.getElementById('tgTestSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Testing...';
+
+  // Save current values from DB for rollback
+  let oldToken = '', oldChat = '';
   try {
+    const settings = await api('GET', '/settings');
+    oldToken = settings.telegram_bot_token || '';
+    oldChat = settings.telegram_chat_id || '';
+  } catch {}
+
+  try {
+    // Save new values first (test endpoint reads from DB)
     await api('PUT', '/settings', { key: 'telegram_bot_token', value: tgToken });
     await api('PUT', '/settings', { key: 'telegram_chat_id', value: tgChat });
-    showMsg('mainMsg', 'Telegram settings saved', 'success');
-  } catch (err) {
-    showMsg('mainMsg', 'Failed: ' + err.message, 'error');
-  }
-}
-
-async function testTelegram() {
-  try {
+    // Test
     const result = await api('POST', '/telegram/test');
-    showMsg('mainMsg', result.message || 'Test message sent!', 'success');
+    showMsg('mainMsg', (result.message || 'Test message sent!') + ' Settings saved.', 'success');
   } catch (err) {
-    showMsg('mainMsg', 'Telegram test failed: ' + err.message, 'error');
+    // Rollback on failure
+    try {
+      await api('PUT', '/settings', { key: 'telegram_bot_token', value: oldToken });
+      await api('PUT', '/settings', { key: 'telegram_chat_id', value: oldChat });
+    } catch {}
+    showMsg('mainMsg', 'Telegram test failed: ' + err.message + '. Settings not saved.', 'error');
+    // Restore input fields to old values
+    document.getElementById('settingTgToken').value = oldToken;
+    document.getElementById('settingTgChat').value = oldChat;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Test & Save';
   }
 }
 
@@ -562,6 +651,8 @@ async function loadAccounts() {
       <td><span class="badge badge-${esc(a.status)}">${esc(a.status)}</span></td>
       <td><span class="badge badge-${a.bw_serve_status.running ? 'running' : 'stopped'}">${a.bw_serve_status.running ? 'running' : 'stopped'}</span></td>
       <td class="actions">
+        ${isAdv && !a.unlocked ? `<button class="btn btn-sm btn-primary" onclick="doUnlockAccount('${esc(a.id)}', '${esc(a.email)}')">Unlock</button>` : ''}
+        ${isAdv && a.unlocked ? `<button class="btn btn-sm" onclick="doLockAccount('${esc(a.id)}')">Lock</button>` : ''}
         <button class="btn btn-sm" onclick="copyMcpConfig('${esc(a.bearer_token)}')">MCP</button>
         <button class="btn btn-sm" onclick="doTest('${esc(a.id)}')">Test</button>
         <button class="btn btn-sm" onclick="doRestart('${esc(a.id)}')">Restart</button>
@@ -578,9 +669,46 @@ async function loadAccounts() {
 
 // --- Account actions ---
 
+async function doUnlockAccount(id, email) {
+  const pw = await showPrompt('Unlock Account', `Enter master password for ${email}:`, 'Master password');
+  if (!pw) return;
+  showMsg('mainMsg', 'Verifying password...', 'info');
+  try {
+    await api('POST', `/accounts/${id}/unlock`, { masterPassword: pw });
+    showMsg('mainMsg', 'Password verified. Vault service starting (~30s)...', 'success');
+    // Poll until unlocked
+    const deadline = Date.now() + 90000;
+    const poll = setInterval(async () => {
+      try {
+        const data = await api('GET', `/accounts/${id}/unlock-status`);
+        if (data.unlocked) {
+          clearInterval(poll);
+          showMsg('mainMsg', 'Account unlocked successfully', 'success');
+          loadAccounts();
+        }
+      } catch {}
+      if (Date.now() > deadline) clearInterval(poll);
+    }, 2000);
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', 'Unlock failed: ' + err.message, 'error');
+  }
+}
+
+async function doLockAccount(id) {
+  try {
+    await api('POST', `/accounts/${id}/lock`);
+    showMsg('mainMsg', 'Account locked', 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', 'Lock failed: ' + err.message, 'error');
+  }
+}
+
 async function doToggleProtection(id, currentMode) {
   if (currentMode === 'standard') {
-    if (!confirm('Switch to Advanced mode? This will remove the master password from disk. You will need to enter it manually after each restart.')) return;
+    const ok = await showConfirm('Switch to Advanced Mode', 'This will remove the master password from disk. You will need to enter it manually after each restart.', 'Switch');
+    if (!ok) return;
     try {
       await api('POST', `/accounts/${id}/protection-mode`, { mode: 'advanced' });
       showMsg('mainMsg', 'Switched to Advanced protection mode. Master password removed from disk.', 'success');
@@ -589,7 +717,7 @@ async function doToggleProtection(id, currentMode) {
       showMsg('mainMsg', 'Failed: ' + err.message, 'error');
     }
   } else {
-    const pw = prompt('Switch to Standard mode? Enter master password to re-encrypt and store on disk:');
+    const pw = await showPrompt('Switch to Standard Mode', 'Enter master password to re-encrypt and store on disk:', 'Master password');
     if (!pw) return;
     try {
       await api('POST', `/accounts/${id}/protection-mode`, { mode: 'standard', masterPassword: pw });
@@ -633,7 +761,8 @@ async function doToggle(id, currentStatus) {
 }
 
 async function doDelete(id, email) {
-  if (!confirm(`Delete account ${email}? This will stop its bw serve and remove all config.`)) return;
+  const ok = await showConfirm('Delete Account', `Delete account ${email}? This will stop its bw serve and remove all config.`, 'Delete');
+  if (!ok) return;
   try {
     await api('DELETE', `/accounts/${id}`);
     showMsg('mainMsg', 'Account deleted', 'success');

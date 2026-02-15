@@ -157,16 +157,13 @@ async function start(): Promise<void> {
   // Migrate legacy env vars if present
   await migrateLegacyEnv();
 
-  // Start all configured accounts' bw serve instances
-  await startAllAccounts();
-
   // Start CDP proxy
   await startCdpProxy(CDP_REMOTE_URL);
 
   // Start expired approval cleanup (every 60 seconds)
   setInterval(cleanupExpiredApprovals, 60_000);
 
-  // Start HTTP server
+  // Start HTTP server first so admin panel is accessible immediately
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Cerberus login-router MCP server listening on 0.0.0.0:${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
@@ -174,6 +171,12 @@ async function start(): Promise<void> {
     console.log(`Admin panel:  http://localhost:${PORT}/admin`);
     console.log(`Approve page: http://localhost:${PORT}/approve`);
     console.log(`Audit log:    http://localhost:${PORT}/audit`);
+  });
+
+  // Start all configured accounts' bw serve instances in background
+  // (does not block HTTP server)
+  startAllAccounts().catch((err) => {
+    console.error('[startup] Error starting accounts:', (err as Error).message);
   });
 }
 
