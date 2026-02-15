@@ -151,7 +151,7 @@ export function registerTools(server: McpServer, account?: Account): void {
                 type: 'text' as const,
                 text: JSON.stringify({
                   status: 'error',
-                  message: 'This login request was not approved by the user within the 2-minute window. The user has been notified via Telegram. Please ask the user to check their Telegram notifications and approve the request on the /approve page, then retry.',
+                  message: 'This login request was not approved by the user within 50 seconds. The user has been notified via Telegram. Please ask the user to check their Telegram notifications and approve the request on the /approve page, then retry.',
                 }),
               }],
               isError: true,
