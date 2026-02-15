@@ -48,11 +48,16 @@ Add Cerberus to your OpenClaw workspace mcporter config:
 {
   "mcpServers": {
     "cerberus": {
-      "baseUrl": "http://localhost:8899/mcp"
+      "url": "http://localhost:8899/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-account-bearer-token>"
+      }
     }
   }
 }
 ```
+
+Get the bearer token from the admin panel (`http://localhost:8899/admin`) — click the token cell or the **MCP** button to copy a ready-to-use config.
 
 Verify the connection:
 
@@ -71,7 +76,7 @@ You should see `secure_login` and `list_vault_items` tools.
    - **Username**: your login email or username
    - **Password**: your password
    - **URI**: the login page URL (e.g., `https://github.com/login`)
-4. Restart login-router if you just added new items: `docker compose restart login-router`
+4. No restart needed — vault items are queried in real time
 
 ## How It Works with OpenClaw
 

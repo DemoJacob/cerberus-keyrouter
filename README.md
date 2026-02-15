@@ -1,5 +1,7 @@
 # Cerberus KeyRouter
 
+English | [中文](README.zh-CN.md)
+
 **Secure login router for AI agents — your LLM never sees your passwords.**
 
 Cerberus KeyRouter is an MCP (Model Context Protocol) server that enables AI agents to log into websites securely. Passwords are stored in Vaultwarden (self-hosted Bitwarden), and the agent only uses `{{placeholder}}` tokens — real credentials are injected locally via Chrome DevTools Protocol (CDP), never entering the LLM context.
@@ -65,8 +67,10 @@ Cerberus KeyRouter solves this by keeping credentials in a local vault and injec
 - **MCP protocol** — works with any MCP-compatible AI agent
 - **Placeholder pattern** — `{{email}}`, `{{password}}`, `{{totp}}`
 - **fill & type actions** — `fill` for standard forms, `type` (key-by-key) for React/SPA sites
-- **Smart tab matching** — finds the correct browser tab by URL
-- **Advanced protection mode** — optional manual unlock + Telegram approval for sensitive accounts
+- **Smart tab matching** — finds the correct browser tab by URL and CSS selector detection
+- **Two-tier protection** — Standard mode (auto-unlock) or Advanced mode (manual unlock + Telegram approval)
+- **Telegram integration** — real-time notifications for unlock events, approval requests with confirmation codes, and login execution results
+- **Mobile-friendly approval page** — `/approve` page for unlocking vaults and approving login requests on the go
 - **Security hardened** — rate limiting, URL verification, audit logging, bearer token auth
 - **Audit log** — web UI at `/audit` to review all login attempts (no passwords logged)
 
@@ -184,11 +188,39 @@ Access at `http://localhost:8899/admin`.
 - **Bearer tokens** — each account gets a unique token; click to copy
 - **MCP config** — one-click copy of ready-to-use MCP JSON config
 - **Protection modes** — Standard (auto-unlock) or Advanced (manual unlock + Telegram approval)
+- **Unlock / Lock** — unlock or lock advanced-mode accounts directly from the account list
 - **bw serve status** — see which accounts are running
 
 **Additional pages:**
 - `/approve` — mobile-friendly page for unlocking advanced-mode accounts and approving login requests
 - `/audit` — searchable audit log of all login attempts
+
+## Protection Modes
+
+Each Vaultwarden account can be configured with one of two protection levels:
+
+### Standard Mode (default)
+
+- Vault is **auto-unlocked** on server startup
+- Login requests are executed immediately
+- Best for low-risk accounts or development use
+
+### Advanced Mode
+
+- Vault stays **locked** until manually unlocked via the `/approve` page or the admin panel
+- Every `secure_login` call requires **real-time approval** with a 4-digit confirmation code
+- Approval must be completed within **50 seconds** or the request is automatically rejected
+- Best for sensitive accounts (banking, financial services, etc.)
+
+### Telegram Notifications
+
+When Telegram is configured (bot token + chat ID in Settings), Advanced mode accounts receive:
+
+1. **Unlock notification** — when a vault is successfully unlocked
+2. **Approval request** — when an agent calls `secure_login`, including the vault item name and a 4-digit confirmation code
+3. **Execution result** — whether the login succeeded or failed after approval
+
+This creates a human-in-the-loop flow: the AI agent requests a login, you verify the request on your phone, enter the confirmation code on the `/approve` page, and the login proceeds.
 
 ## MCP Tools
 
@@ -266,10 +298,12 @@ Some sites have multi-step login flows. Handle these by splitting into separate 
 | Prompt injection to login to phishing site | Vaultwarden acts as implicit allowlist; URL verification via CDP |
 | Unauthorized MCP access | Per-account bearer token authentication |
 | Credential abuse / repeated attempts | Rate limiting (3/min, 20/hr) + cooldown after failures |
+| Unauthorized login to sensitive accounts | Advanced mode: manual unlock + confirmation code approval with 50s timeout |
 | URL spoofing | Login router reads actual browser URL via CDP, matches against vault URI |
 | Missing audit trail | Structured audit logging at `/audit` (no passwords in logs) |
 | Stored password leakage | Master passwords encrypted with AES-256-GCM (auto-generated key) |
 | Admin panel brute force | PBKDF2-SHA256 hashed password, session-based auth |
+| Unnoticed credential use | Telegram notifications for unlock, approval requests, and execution results |
 
 ## Environment Variables
 
