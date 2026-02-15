@@ -55,7 +55,7 @@ export async function notifyLoginApproval(vaultItem: string, code: string, accou
     `Account: <code>${escapeHtml(accountEmail)}</code>\n` +
     `Vault item: <b>${escapeHtml(vaultItem)}</b>\n` +
     `Approval code: <code>${code}</code>\n\n` +
-    `Enter this code in the Approve page to allow the login.`
+    `⏱ You have <b>50 seconds</b> to enter this code in the Approve page.`
   );
 }
 
