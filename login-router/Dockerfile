@@ -1,6 +1,10 @@
 # --- Build stage ---
 FROM node:20-slim AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -16,6 +20,7 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Bitwarden CLI
@@ -29,9 +34,15 @@ RUN npm ci --omit=dev || npm install --omit=dev
 # Copy compiled JS from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy audit frontend HTML to dist
+COPY src/audit-frontend.html ./dist/audit-frontend.html
+
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Create data directory for audit DB
+RUN mkdir -p /app/data
 
 EXPOSE 8899
 

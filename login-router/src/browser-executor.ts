@@ -134,6 +134,12 @@ async function executeStep(page: Page, step: Step): Promise<void> {
   }
 }
 
+export async function getCurrentPageUrl(targetUrl?: string): Promise<string> {
+  const browser = await getConnectedBrowser();
+  const page = await getActivePage(browser, targetUrl);
+  return page.url();
+}
+
 function truncateError(message?: string): string {
   if (!message) return 'Unknown error';
   return message.length > ERROR_MESSAGE_MAX_LENGTH

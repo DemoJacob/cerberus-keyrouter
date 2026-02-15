@@ -51,6 +51,13 @@ services:
       - CDP_URL=http://host.docker.internal:18800
       - MCP_PORT=8899
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      - AUDIT_DB_PATH=/app/data/audit.db
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-3}
+      - RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-20}
+      - RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-30}
+    volumes:
+      - ./audit-data:/app/data
     ports:
       - "8899:8899"
     depends_on:

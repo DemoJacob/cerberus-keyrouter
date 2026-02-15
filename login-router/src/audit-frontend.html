@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cerberus Audit Log</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 16px; color: #58a6ff; }
+  .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filters input, .filters select { background: #161b22; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; }
+  .filters input::placeholder { color: #484f58; }
+  .filters button { background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  .filters button:hover { background: #30363d; }
+  .filters button.active { background: #1f6feb; border-color: #1f6feb; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.5px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  tr:hover { background: #161b22; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+  .badge-success { background: #0d4429; color: #3fb950; }
+  .badge-error { background: #4a1518; color: #f85149; }
+  .badge-rate_limited { background: #4a3012; color: #d29922; }
+  .badge-url_mismatch { background: #4a1518; color: #f85149; }
+  .badge-exact { background: #0d4429; color: #3fb950; }
+  .badge-subdomain { background: #0d3347; color: #58a6ff; }
+  .badge-no_uri_configured { background: #3d2e00; color: #d29922; }
+  .badge-mismatch { background: #4a1518; color: #f85149; }
+  .badge-unknown { background: #21262d; color: #8b949e; }
+  .pagination { display: flex; gap: 8px; margin-top: 16px; align-items: center; justify-content: center; }
+  .pagination button { background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  .pagination button:disabled { opacity: 0.4; cursor: default; }
+  .pagination span { color: #8b949e; font-size: 0.85rem; }
+  .error-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: #f85149; }
+  .empty { text-align: center; padding: 40px; color: #484f58; }
+</style>
+</head>
+<body>
+<h1>Cerberus Audit Log</h1>
+
+<div class="filters">
+  <input type="text" id="filterVaultItem" placeholder="Vault item..." />
+  <select id="filterResult">
+    <option value="">All results</option>
+    <option value="success">Success</option>
+    <option value="error">Error</option>
+    <option value="rate_limited">Rate limited</option>
+    <option value="url_mismatch">URL mismatch</option>
+  </select>
+  <input type="date" id="filterFrom" title="From date" />
+  <input type="date" id="filterTo" title="To date" />
+  <button onclick="loadPage(1)">Filter</button>
+  <button id="autoRefreshBtn" onclick="toggleAutoRefresh()">Auto-refresh: OFF</button>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Action</th>
+      <th>Vault Item</th>
+      <th>Username</th>
+      <th>URL Match</th>
+      <th>Result</th>
+      <th>Steps</th>
+      <th>Duration</th>
+      <th>Error</th>
+    </tr>
+  </thead>
+  <tbody id="logBody"></tbody>
+</table>
+
+<div class="pagination">
+  <button id="prevBtn" onclick="loadPage(currentPage-1)">Prev</button>
+  <span id="pageInfo">-</span>
+  <button id="nextBtn" onclick="loadPage(currentPage+1)">Next</button>
+</div>
+
+<script>
+let currentPage = 1;
+const perPage = 50;
+let autoRefreshInterval = null;
+
+function badge(text, prefix) {
+  if (!text) return '-';
+  const cls = prefix ? `badge-${text}` : `badge-${text}`;
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+function formatTs(ts) {
+  if (!ts) return '-';
+  try {
+    const d = new Date(ts + 'Z');
+    return d.toLocaleString();
+  } catch { return ts; }
+}
+
+function formatDuration(ms) {
+  if (ms == null) return '-';
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+async function loadPage(page) {
+  currentPage = Math.max(1, page);
+  const params = new URLSearchParams({ page: currentPage, limit: perPage });
+  const vi = document.getElementById('filterVaultItem').value;
+  const res = document.getElementById('filterResult').value;
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  if (vi) params.set('vaultItem', vi);
+  if (res) params.set('result', res);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+
+  try {
+    const resp = await fetch('/api/audit?' + params);
+    const data = await resp.json();
+    const totalPages = Math.ceil(data.total / perPage) || 1;
+
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${data.total} entries)`;
+    document.getElementById('prevBtn').disabled = currentPage <= 1;
+    document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+
+    const body = document.getElementById('logBody');
+    if (!data.rows || data.rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="9" class="empty">No audit entries found</td></tr>';
+      return;
+    }
+
+    body.innerHTML = data.rows.map(r => `<tr>
+      <td>${formatTs(r.timestamp)}</td>
+      <td>${r.action || '-'}</td>
+      <td>${r.vault_item || '-'}</td>
+      <td>${r.username || '-'}</td>
+      <td>${r.url_match ? badge(r.url_match) : '-'}</td>
+      <td>${badge(r.result)}</td>
+      <td>${r.steps_completed != null ? r.steps_completed : '-'}</td>
+      <td>${formatDuration(r.duration_ms)}</td>
+      <td class="error-cell" title="${(r.error || '').replace(/"/g, '&quot;')}">${r.error || '-'}</td>
+    </tr>`).join('');
+  } catch (err) {
+    document.getElementById('logBody').innerHTML = `<tr><td colspan="9" class="empty">Failed to load: ${err.message}</td></tr>`;
+  }
+}
+
+function toggleAutoRefresh() {
+  const btn = document.getElementById('autoRefreshBtn');
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+    btn.textContent = 'Auto-refresh: OFF';
+    btn.classList.remove('active');
+  } else {
+    autoRefreshInterval = setInterval(() => loadPage(currentPage), 30000);
+    btn.textContent = 'Auto-refresh: ON';
+    btn.classList.add('active');
+  }
+}
+
+loadPage(1);
+</script>
+</body>
+</html>
