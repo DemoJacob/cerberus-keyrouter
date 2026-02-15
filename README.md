@@ -1,7 +1,5 @@
 # Cerberus KeyRouter
 
-English | [中文](README.zh-CN.md)
-
 **Secure login router for AI agents — your LLM never sees your passwords.**
 
 Cerberus KeyRouter is an MCP (Model Context Protocol) server that enables AI agents to log into websites securely. Passwords are stored in Vaultwarden (self-hosted Bitwarden), and the agent only uses `{{placeholder}}` tokens — real credentials are injected locally via Chrome DevTools Protocol (CDP), never entering the LLM context.

@@ -13,12 +13,20 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Design docs (internal reference only)
+# Internal docs (not published to GitHub)
 DESIGN.md
+TECH_DEBT.md
+README.zh-CN.md
+Cerberus-KeyRouter-项目介绍.md
+docs/openclaw_quickstart.md
 
 # IDE
 .vscode/
 .idea/
 
-# Docker volumes
+# Docker volumes & data
 certs/
+audit-data/
+
+# Serena
+.serena/
