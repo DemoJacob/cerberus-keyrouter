@@ -31,6 +31,13 @@ interface BwObjectResponse {
 
 // --- bw serve REST API (primary) ---
 
+async function bwServeSync(): Promise<void> {
+  const res = await fetch(`${BW_SERVE_URL}/sync`, { method: 'POST' });
+  if (!res.ok) {
+    console.warn('bw serve sync failed:', res.status);
+  }
+}
+
 async function bwServeGet<T>(path: string): Promise<T> {
   const res = await fetch(`${BW_SERVE_URL}${path}`);
   if (!res.ok) {
@@ -41,6 +48,7 @@ async function bwServeGet<T>(path: string): Promise<T> {
 }
 
 async function getCredentialsViaServe(vaultItemName: string): Promise<Credentials> {
+  await bwServeSync();
   const searchRes = await bwServeGet<BwListResponse>(
     `/list/object/items?search=${encodeURIComponent(vaultItemName)}`
   );
@@ -57,6 +65,9 @@ async function getCredentialsViaServe(vaultItemName: string): Promise<Credential
   }
 
   const credentials: Credentials = {};
+
+  // Store URI from the item for tab matching
+  credentials.uri = item.login?.uris?.[0]?.uri;
 
   // Get username
   try {
@@ -84,6 +95,7 @@ async function getCredentialsViaServe(vaultItemName: string): Promise<Credential
 }
 
 async function listItemsViaServe(): Promise<Array<{ name: string; username?: string; uri?: string }>> {
+  await bwServeSync();
   const res = await bwServeGet<BwListResponse>('/list/object/items');
   const items = res.data?.data ?? [];
 

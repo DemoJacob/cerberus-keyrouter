@@ -31,23 +31,42 @@ async function getConnectedBrowser(): Promise<Browser> {
   throw new Error(`Failed to connect to CDP at ${CDP_URL}: ${truncateError(lastError?.message)}`);
 }
 
-async function getActivePage(browser: Browser): Promise<Page> {
+async function getActivePage(browser: Browser, targetUrl?: string): Promise<Page> {
   const contexts = browser.contexts();
   if (contexts.length === 0) {
     throw new Error('No browser contexts available');
   }
 
-  const pages = contexts[0].pages();
-  if (pages.length === 0) {
+  // Collect all pages across all contexts
+  const allPages: Page[] = [];
+  for (const ctx of contexts) {
+    allPages.push(...ctx.pages());
+  }
+
+  if (allPages.length === 0) {
     throw new Error('No pages available in browser context');
   }
 
-  return pages[0];
+  // If targetUrl provided, find the page whose URL matches the domain
+  if (targetUrl) {
+    try {
+      const targetHost = new URL(targetUrl).hostname.replace(/^www\./, '');
+      const matched = allPages.find(p => {
+        try {
+          const pageHost = new URL(p.url()).hostname.replace(/^www\./, '');
+          return pageHost === targetHost || pageHost.endsWith('.' + targetHost);
+        } catch { return false; }
+      });
+      if (matched) return matched;
+    } catch { /* fall through to default */ }
+  }
+
+  return allPages[0];
 }
 
-export async function executeSteps(steps: Step[]): Promise<{ success: boolean; message: string; stepsCompleted: number }> {
+export async function executeSteps(steps: Step[], targetUrl?: string): Promise<{ success: boolean; message: string; stepsCompleted: number }> {
   const browser = await getConnectedBrowser();
-  const page = await getActivePage(browser);
+  const page = await getActivePage(browser, targetUrl);
 
   let stepsCompleted = 0;
 
@@ -78,6 +97,16 @@ async function executeStep(page: Page, step: Step): Promise<void> {
     case 'fill': {
       const locator = page.locator(step.selector);
       await locator.fill(step.value, { timeout: STEP_TIMEOUT });
+      // Dispatch events for React/Angular/Vue frameworks that ignore programmatic fill
+      await locator.dispatchEvent('input', { bubbles: true });
+      await locator.dispatchEvent('change', { bubbles: true });
+      break;
+    }
+
+    case 'type': {
+      const locator = page.locator(step.selector);
+      await locator.click({ timeout: STEP_TIMEOUT });
+      await locator.pressSequentially(step.value, { delay: 50, timeout: STEP_TIMEOUT });
       break;
     }
 

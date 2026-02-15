@@ -1,6 +1,6 @@
 import type { Step } from './mcp-handler.js';
 
-const ALLOWED_ACTIONS = new Set(['fill', 'click', 'wait', 'select']);
+const ALLOWED_ACTIONS = new Set(['fill', 'click', 'wait', 'type', 'select']);
 const MAX_STEPS = 20;
 const MAX_SELECTOR_LENGTH = 500;
 const MAX_VALUE_LENGTH = 1000;
@@ -40,8 +40,8 @@ export function validateSteps(steps: Step[]): void {
       validateSelector(step.selector, i);
     }
 
-    // Placeholders may only appear in fill.value
-    if (step.action === 'fill') {
+    // Placeholders may only appear in fill/type value
+    if (step.action === 'fill' || step.action === 'type') {
       if (step.value && step.value.length > MAX_VALUE_LENGTH) {
         throw new Error(`Step ${i}: value too long (max ${MAX_VALUE_LENGTH})`);
       }

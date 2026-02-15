@@ -24,6 +24,12 @@ const WaitStepSchema = z.object({
   navigation: z.boolean().optional(),
 });
 
+const TypeStepSchema = z.object({
+  action: z.literal('type'),
+  selector: z.string(),
+  value: z.string(),
+});
+
 const SelectStepSchema = z.object({
   action: z.literal('select'),
   selector: z.string(),
@@ -34,6 +40,7 @@ const StepSchema = z.discriminatedUnion('action', [
   FillStepSchema,
   ClickStepSchema,
   WaitStepSchema,
+  TypeStepSchema,
   SelectStepSchema,
 ]);
 
@@ -45,7 +52,7 @@ export type Step = z.infer<typeof StepSchema>;
 export function registerTools(server: McpServer): void {
   server.tool(
     'secure_login',
-    'Execute a login sequence on the browser. Uses placeholders like {{email}}, {{username}}, {{password}}, {{totp}} that are replaced with real credentials locally. The LLM never sees the actual passwords.',
+    'Execute a login sequence on the browser. Uses placeholders like {{email}}, {{username}}, {{password}}, {{totp}} that are replaced with real credentials locally. The LLM never sees the actual passwords. Use "type" action instead of "fill" for sites with frameworks (React, Angular) that need character-by-character input to trigger change events.',
     {
       vaultItem: z.string().describe('Name of the vault item to retrieve credentials from'),
       steps: z.array(StepSchema).describe('Ordered list of browser actions to execute'),
@@ -65,8 +72,8 @@ export function registerTools(server: McpServer): void {
         // 3. Replace placeholders with real credentials
         resolvedSteps = replacePlaceholders(steps, credentials);
 
-        // 4. Execute browser steps via CDP
-        const result = await executeSteps(resolvedSteps);
+        // 4. Execute browser steps via CDP (pass URI for tab matching)
+        const result = await executeSteps(resolvedSteps, credentials.uri);
 
         return {
           content: [{

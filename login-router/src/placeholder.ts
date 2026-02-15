@@ -5,13 +5,14 @@ export interface Credentials {
   email?: string;
   password?: string;
   totp?: string;
+  uri?: string;
 }
 
 const PLACEHOLDER_REGEX = /\{\{(email|username|password|totp)\}\}/g;
 
 export function replacePlaceholders(steps: Step[], credentials: Credentials): Step[] {
   return steps.map((step, i) => {
-    if (step.action !== 'fill') {
+    if (step.action !== 'fill' && step.action !== 'type') {
       return { ...step };
     }
 

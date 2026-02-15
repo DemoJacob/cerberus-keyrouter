@@ -28,7 +28,7 @@ services:
       - DOMAIN=https://localhost:8443
       - ROCKET_TLS={certs="/ssl/cert.pem",key="/ssl/key.pem"}
     ports:
-      - "8443:80"
+      - "0.0.0.0:8443:80"
     depends_on:
       init-certs:
         condition: service_completed_successfully
