@@ -13,6 +13,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Design docs (internal reference only)
+DESIGN.md
+
 # IDE
 .vscode/
 .idea/
