@@ -1,0 +1,42 @@
+services:
+  # One-shot container to generate self-signed TLS cert for Vaultwarden
+  init-certs:
+    image: alpine:latest
+    command:
+      - sh
+      - -c
+      - |
+        if [ -f /certs/cert.pem ] && [ -f /certs/key.pem ]; then
+          echo '[init-certs] Certs already exist, skipping'
+          exit 0
+        fi
+        apk add --no-cache openssl
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /certs/key.pem -out /certs/cert.pem -subj '/CN=vaultwarden' -addext 'subjectAltName=DNS:vaultwarden,DNS:localhost'
+        echo '[init-certs] Certs generated'
+    volumes:
+      - certs:/certs
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: always
+    volumes:
+      - ./vw-data:/data
+      - certs:/ssl:ro
+    environment:
+      - SIGNUPS_ALLOWED=false
+      - ADMIN_TOKEN=${VW_ADMIN_TOKEN}
+      - DOMAIN=https://localhost:8443
+      - ROCKET_TLS={certs="/ssl/cert.pem",key="/ssl/key.pem"}
+    ports:
+      - "8443:80"
+    depends_on:
+      init-certs:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost:80/alive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  certs:
