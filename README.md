@@ -67,34 +67,60 @@ Cerberus KeyRouter solves this by keeping credentials in a local vault and injec
 - Chrome/Chromium with remote debugging enabled (`--remote-debugging-port=18800`)
 - An MCP-compatible AI agent (e.g., [OpenClaw](https://github.com/openclaw/openclaw))
 
-### 1. Clone & Configure
+### 1. Clone & Initial Config
 
 ```bash
 git clone https://github.com/DemoJacob/cerberus-keyrouter.git
 cd cerberus-keyrouter
 cp .env.example .env
-# Edit .env with your values
 ```
 
-### 2. Start Services
+Edit `.env` — only `VW_ADMIN_TOKEN` is needed for now:
 
 ```bash
-docker compose up -d
+VW_ADMIN_TOKEN=your_admin_password_here
+BW_CLIENTID=
+BW_CLIENTSECRET=
+BW_MASTER_PASSWORD=
+```
+
+### 2. Start Vaultwarden
+
+```bash
+docker compose up -d vaultwarden
+```
+
+Wait until healthy, then open `https://localhost:8443` (accept the self-signed certificate).
+
+### 3. Set Up Vaultwarden
+
+1. Create an account (set your master password)
+2. Add login items for your websites (name, username, password, URI)
+3. Generate API keys: Settings → Security → Keys → API Key
+4. Update `.env` with all values:
+
+```bash
+VW_ADMIN_TOKEN=your_admin_password_here
+BW_CLIENTID=user.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+BW_CLIENTSECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+BW_MASTER_PASSWORD=your_master_password
+```
+
+> **Note:** By default `SIGNUPS_ALLOWED=false` in `docker-compose.yml`. For first-time setup, change it to `true`, restart Vaultwarden, create your account, then optionally change it back. Keeping it `true` is fine for personal/local use since the service is only accessible on localhost.
+
+### 4. Start All Services
+
+```bash
+docker compose up --build -d
 ```
 
 This starts:
 - **Vaultwarden** on `https://localhost:8443` — password vault web UI
 - **Login Router** on `http://localhost:8899` — MCP server
 
-### 3. Set Up Vaultwarden
+Verify: `curl http://localhost:8899/health` should return `{"status":"ok"}`
 
-1. Open `https://localhost:8443` (accept the self-signed certificate)
-2. Create an account
-3. Add login items for your websites (name, username, password, URI)
-4. Generate API keys: Settings → Security → Keys → API Key
-5. Update `.env` with `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_MASTER_PASSWORD`
-
-### 4. Connect Your AI Agent
+### 5. Connect Your AI Agent
 
 Add to your MCP configuration:
 
@@ -108,7 +134,7 @@ Add to your MCP configuration:
 }
 ```
 
-### 5. Test
+### 6. Test
 
 ```bash
 # Check health
