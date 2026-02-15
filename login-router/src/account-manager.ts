@@ -7,7 +7,7 @@ import {
   type Account,
 } from './config-db.js';
 import { getCachedMasterPassword, cacheMasterPassword, clearCachedMasterPassword } from './approval-manager.js';
-import { notifyUnlockNeeded, notifySystemRestarted } from './telegram-notifier.js';
+import { notifyUnlockNeeded, notifySystemRestarted, notifyUnlockSuccess } from './telegram-notifier.js';
 
 // Encryption key is auto-generated and stored in a file, completely independent
 // of VW_ADMIN_TOKEN. This means changing the admin token never affects encrypted data.
@@ -457,6 +457,7 @@ export async function unlockAdvancedAccount(accountId: string, masterPassword: s
   // Start bw serve (will use cached password)
   await startBwServe(account);
   console.log(`[account-manager] Advanced account ${account.email} unlocked successfully`);
+  await notifyUnlockSuccess(account.email);
 }
 
 export function isAccountUnlocked(accountId: string): boolean {

@@ -65,6 +65,18 @@ export async function notifyLoginResult(vaultItem: string, approved: boolean): P
   await sendMessage(`${emoji} Login for <b>${escapeHtml(vaultItem)}</b>: ${status}`);
 }
 
+export async function notifyUnlockSuccess(accountEmail: string): Promise<void> {
+  await sendMessage(`🔓 <b>Vault Unlocked</b>\n\nAccount <code>${escapeHtml(accountEmail)}</code> has been unlocked successfully.`);
+}
+
+export async function notifyLoginExecuted(vaultItem: string, success: boolean): Promise<void> {
+  if (success) {
+    await sendMessage(`✅ Login for <b>${escapeHtml(vaultItem)}</b> executed successfully.`);
+  } else {
+    await sendMessage(`⚠️ Login for <b>${escapeHtml(vaultItem)}</b> was approved but execution failed.`);
+  }
+}
+
 export async function testNotification(): Promise<{ ok: boolean; message: string }> {
   const { botToken, chatId } = getTelegramConfig();
   if (!botToken || !chatId) {

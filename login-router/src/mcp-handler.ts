@@ -9,7 +9,7 @@ import { checkRateLimit, recordAttempt } from './rate-limiter.js';
 import { verifyUrl } from './url-verifier.js';
 import type { Account } from './config-db.js';
 import { requestApproval, waitForApproval } from './approval-manager.js';
-import { notifyLoginApproval, notifyLoginResult } from './telegram-notifier.js';
+import { notifyLoginApproval, notifyLoginResult, notifyLoginExecuted } from './telegram-notifier.js';
 import { isAccountUnlocked } from './account-manager.js';
 
 // --- Step type definitions ---
@@ -206,6 +206,12 @@ export function registerTools(server: McpServer, account?: Account): void {
 
         const success = result.success;
         recordAttempt(vaultItem, success);
+
+        // Notify execution result for advanced mode accounts
+        if (account && account.protection_mode === 'advanced') {
+          await notifyLoginExecuted(vaultItem, success);
+        }
+
         logAudit({
           action: 'secure_login',
           vaultItem,
