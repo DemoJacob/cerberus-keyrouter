@@ -2,10 +2,11 @@ import crypto from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   getActiveAccounts, getAccountById, addAccount, removeAccount as dbRemoveAccount,
-  updateAccount, allocatePort, generateId, getSetting, type Account,
+  updateAccount, allocatePort, generateId, getSetting, updateSetting, type Account,
 } from './config-db.js';
 
 const ADMIN_TOKEN = process.env.VW_ADMIN_TOKEN || '';
+const ENCRYPTION_CHECK_SENTINEL = 'cerberus-ok';
 
 // --- AES-256-GCM encryption for master passwords ---
 
@@ -32,6 +33,42 @@ export function decryptPassword(ciphertext: string): string {
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   return decipher.update(encrypted) + decipher.final('utf8');
+}
+
+// --- Encryption key validation ---
+// Ensures VW_ADMIN_TOKEN hasn't changed since accounts were created.
+// If it changed, encrypted master passwords are unrecoverable.
+
+export function validateEncryptionKey(): void {
+  const stored = getSetting('encryption_check');
+
+  if (!stored) {
+    // First run or no accounts yet — store the check value
+    const check = encryptPassword(ENCRYPTION_CHECK_SENTINEL);
+    updateSetting('encryption_check', check);
+    console.log('[account-manager] Encryption key fingerprint stored');
+    return;
+  }
+
+  // Verify we can decrypt with current admin token
+  try {
+    const decrypted = decryptPassword(stored);
+    if (decrypted !== ENCRYPTION_CHECK_SENTINEL) {
+      throw new Error('mismatch');
+    }
+  } catch {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════╗');
+    console.error('║  FATAL: VW_ADMIN_TOKEN has changed since accounts were      ║');
+    console.error('║  created. All encrypted master passwords are unrecoverable. ║');
+    console.error('║                                                              ║');
+    console.error('║  Options:                                                    ║');
+    console.error('║  1. Restore the original VW_ADMIN_TOKEN in .env              ║');
+    console.error('║  2. Delete /app/data/config.db and re-add accounts           ║');
+    console.error('╚══════════════════════════════════════════════════════════════╝');
+    console.error('');
+    process.exit(1);
+  }
 }
 
 // --- PBKDF2 double hash (Bitwarden protocol) ---
@@ -345,6 +382,9 @@ export async function testAccount(id: string): Promise<{ ok: boolean; message: s
 // --- Startup: restore all active accounts ---
 
 export async function startAllAccounts(): Promise<void> {
+  // Verify admin token matches encryption key before touching any passwords
+  validateEncryptionKey();
+
   const accounts = getActiveAccounts();
   if (accounts.length === 0) {
     console.log('[account-manager] No accounts configured');
