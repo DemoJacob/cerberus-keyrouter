@@ -118,7 +118,7 @@ export function registerTools(server: McpServer, account?: Account): void {
                 type: 'text' as const,
                 text: JSON.stringify({
                   status: 'error',
-                  message: `Account ${account.email} is in advanced protection mode and currently locked. An admin must unlock it via the Approve page.`,
+                  message: `The vault is currently locked (advanced protection mode). Please ask the user to unlock it on the /approve page, then retry.`,
                 }),
               }],
               isError: true,
@@ -151,7 +151,7 @@ export function registerTools(server: McpServer, account?: Account): void {
                 type: 'text' as const,
                 text: JSON.stringify({
                   status: 'error',
-                  message: 'Login approval was not received within the timeout period. Please approve via the Approve page.',
+                  message: 'This login request was not approved by the user within the 2-minute window. The user has been notified via Telegram. Please ask the user to check their Telegram notifications and approve the request on the /approve page, then retry.',
                 }),
               }],
               isError: true,

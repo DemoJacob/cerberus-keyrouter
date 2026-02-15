@@ -15,7 +15,7 @@ import {
 const masterPasswordCache = new Map<string, { password: string; expiresAt: number }>();
 
 const DEFAULT_CACHE_TTL = 8 * 60 * 60; // 8 hours in seconds
-const APPROVAL_EXPIRY_SECONDS = 300; // 5 minutes
+const APPROVAL_EXPIRY_SECONDS = 120; // 2 minutes
 
 export function cacheMasterPassword(accountId: string, password: string, ttlSeconds: number = DEFAULT_CACHE_TTL): void {
   masterPasswordCache.set(accountId, {
