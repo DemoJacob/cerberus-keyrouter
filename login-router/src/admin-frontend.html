@@ -104,6 +104,24 @@
     <button class="btn" onclick="saveSettings()">Save</button>
   </div>
 
+  <!-- Telegram -->
+  <h2>Telegram Notifications (optional)</h2>
+  <div class="settings-row">
+    <div class="form-group">
+      <label>Bot Token</label>
+      <input type="text" id="settingTgToken" placeholder="123456:ABC-DEF..." />
+    </div>
+    <div class="form-group">
+      <label>Chat ID</label>
+      <input type="text" id="settingTgChat" placeholder="123456789" />
+    </div>
+    <button class="btn" onclick="saveTelegram()">Save</button>
+    <button class="btn" onclick="testTelegram()">Test</button>
+  </div>
+  <p style="font-size:0.78rem;color:#484f58;margin-top:-8px;margin-bottom:16px;">
+    Used for unlock reminders and login approval notifications. <a href="/approve" style="color:#58a6ff;">Open Approve Page</a>
+  </p>
+
   <!-- Accounts -->
   <h2>
     Accounts
@@ -115,13 +133,14 @@
         <th>Name</th>
         <th>Email</th>
         <th>Bearer Token</th>
+        <th>Protection</th>
         <th>Status</th>
         <th>bw serve</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody id="accountsBody">
-      <tr><td colspan="6" class="empty loading">Loading...</td></tr>
+      <tr><td colspan="7" class="empty loading">Loading...</td></tr>
     </tbody>
   </table>
 </div>
@@ -151,6 +170,13 @@
       <label>Custom Vaultwarden URL (optional, uses global default if empty)</label>
       <input type="text" id="addVwUrl" placeholder="https://your-domain.com" />
     </div>
+    <div class="form-group">
+      <label>Protection Mode</label>
+      <select id="addProtectionMode" style="width:100%;background:#161b22;border:1px solid #30363d;color:#e1e4e8;padding:8px 12px;border-radius:6px;font-size:0.9rem;">
+        <option value="standard">Standard (auto-unlock, no approval)</option>
+        <option value="advanced">Advanced (manual unlock + login approval)</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="hideAddModal()">Cancel</button>
       <button class="btn btn-primary" id="addSubmitBtn" onclick="doAddAccount()">Add Account</button>
@@ -160,6 +186,11 @@
 
 <script>
 let token = sessionStorage.getItem('adminToken') || '';
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
 function api(method, path, body) {
   const opts = {
@@ -176,13 +207,29 @@ function api(method, path, body) {
 
 function showMsg(id, text, type) {
   const el = document.getElementById(id);
-  el.innerHTML = `<div class="msg msg-${type}">${text}</div>`;
+  el.innerHTML = `<div class="msg msg-${esc(type)}">${esc(text)}</div>`;
   if (type !== 'error') setTimeout(() => { el.innerHTML = ''; }, 5000);
 }
 
 function copyToken(text) {
   navigator.clipboard.writeText(text).then(() => {
     showMsg('mainMsg', 'Bearer token copied to clipboard', 'success');
+  });
+}
+
+function copyMcpConfig(bearerToken) {
+  const config = JSON.stringify({
+    mcpServers: {
+      cerberus: {
+        url: location.origin + '/mcp',
+        headers: {
+          Authorization: 'Bearer ' + bearerToken
+        }
+      }
+    }
+  }, null, 2);
+  navigator.clipboard.writeText(config).then(() => {
+    showMsg('mainMsg', 'MCP config copied to clipboard', 'success');
   });
 }
 
@@ -223,6 +270,8 @@ async function loadSettings() {
   try {
     const settings = await api('GET', '/settings');
     document.getElementById('settingVwUrl').value = settings.vaultwarden_url || '';
+    document.getElementById('settingTgToken').value = settings.telegram_bot_token || '';
+    document.getElementById('settingTgChat').value = settings.telegram_chat_id || '';
   } catch (err) {
     showMsg('mainMsg', 'Failed to load settings: ' + err.message, 'error');
   }
@@ -238,33 +287,86 @@ async function saveSettings() {
   }
 }
 
+async function saveTelegram() {
+  const tgToken = document.getElementById('settingTgToken').value.trim();
+  const tgChat = document.getElementById('settingTgChat').value.trim();
+  try {
+    await api('PUT', '/settings', { key: 'telegram_bot_token', value: tgToken });
+    await api('PUT', '/settings', { key: 'telegram_chat_id', value: tgChat });
+    showMsg('mainMsg', 'Telegram settings saved', 'success');
+  } catch (err) {
+    showMsg('mainMsg', 'Failed: ' + err.message, 'error');
+  }
+}
+
+async function testTelegram() {
+  try {
+    const result = await api('POST', '/telegram/test');
+    showMsg('mainMsg', result.message || 'Test message sent!', 'success');
+  } catch (err) {
+    showMsg('mainMsg', 'Telegram test failed: ' + err.message, 'error');
+  }
+}
+
 async function loadAccounts() {
   try {
     const accounts = await api('GET', '/accounts');
     const body = document.getElementById('accountsBody');
     if (accounts.length === 0) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">No accounts configured. Click "+ Add Account" to get started.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="empty">No accounts configured. Click "+ Add Account" to get started.</td></tr>';
       return;
     }
-    body.innerHTML = accounts.map(a => `<tr>
-      <td>${a.display_name || '-'}</td>
-      <td>${a.email}</td>
-      <td class="token-cell" title="Click to copy" onclick="copyToken('${a.bearer_token}')">${a.bearer_token}</td>
-      <td><span class="badge badge-${a.status}">${a.status}</span></td>
+    body.innerHTML = accounts.map(a => {
+      const isAdv = a.protection_mode === 'advanced';
+      const protBadge = isAdv
+        ? `<span class="badge" style="background:#3d2e00;color:#d29922;">advanced</span>${a.unlocked ? ' <span class="badge badge-active" style="font-size:0.65rem;">unlocked</span>' : ' <span class="badge badge-disabled" style="font-size:0.65rem;">locked</span>'}`
+        : '<span class="badge" style="background:#21262d;color:#8b949e;">standard</span>';
+      return `<tr>
+      <td>${esc(a.display_name) || '-'}</td>
+      <td>${esc(a.email)}</td>
+      <td class="token-cell" title="Click to copy" onclick="copyToken('${esc(a.bearer_token)}')">${esc(a.bearer_token)}</td>
+      <td>${protBadge}</td>
+      <td><span class="badge badge-${esc(a.status)}">${esc(a.status)}</span></td>
       <td><span class="badge badge-${a.bw_serve_status.running ? 'running' : 'stopped'}">${a.bw_serve_status.running ? 'running' : 'stopped'}</span></td>
       <td class="actions">
-        <button class="btn btn-sm" onclick="doTest('${a.id}')">Test</button>
-        <button class="btn btn-sm" onclick="doRestart('${a.id}')">Restart</button>
-        <button class="btn btn-sm" onclick="doToggle('${a.id}', '${a.status}')">${a.status === 'active' ? 'Disable' : 'Enable'}</button>
-        <button class="btn btn-sm btn-danger" onclick="doDelete('${a.id}', '${a.email}')">Delete</button>
+        <button class="btn btn-sm" onclick="copyMcpConfig('${esc(a.bearer_token)}')">MCP</button>
+        <button class="btn btn-sm" onclick="doTest('${esc(a.id)}')">Test</button>
+        <button class="btn btn-sm" onclick="doRestart('${esc(a.id)}')">Restart</button>
+        <button class="btn btn-sm" onclick="doToggleProtection('${esc(a.id)}', '${esc(a.protection_mode)}')">${isAdv ? 'Standard' : 'Advanced'}</button>
+        <button class="btn btn-sm" onclick="doToggle('${esc(a.id)}', '${esc(a.status)}')">${a.status === 'active' ? 'Disable' : 'Enable'}</button>
+        <button class="btn btn-sm btn-danger" onclick="doDelete('${esc(a.id)}', '${esc(a.email)}')">Delete</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   } catch (err) {
-    document.getElementById('accountsBody').innerHTML = `<tr><td colspan="6" class="empty">Failed to load: ${err.message}</td></tr>`;
+    document.getElementById('accountsBody').innerHTML = `<tr><td colspan="6" class="empty">Failed to load: ${esc(err.message)}</td></tr>`;
   }
 }
 
 // --- Account actions ---
+
+async function doToggleProtection(id, currentMode) {
+  if (currentMode === 'standard') {
+    if (!confirm('Switch to Advanced mode? This will remove the master password from disk. You will need to enter it manually after each restart.')) return;
+    try {
+      await api('POST', `/accounts/${id}/protection-mode`, { mode: 'advanced' });
+      showMsg('mainMsg', 'Switched to Advanced protection mode. Master password removed from disk.', 'success');
+      loadAccounts();
+    } catch (err) {
+      showMsg('mainMsg', 'Failed: ' + err.message, 'error');
+    }
+  } else {
+    const pw = prompt('Switch to Standard mode? Enter master password to re-encrypt and store on disk:');
+    if (!pw) return;
+    try {
+      await api('POST', `/accounts/${id}/protection-mode`, { mode: 'standard', masterPassword: pw });
+      showMsg('mainMsg', 'Switched to Standard mode. Master password encrypted and stored.', 'success');
+      loadAccounts();
+    } catch (err) {
+      showMsg('mainMsg', 'Failed: ' + err.message, 'error');
+    }
+  }
+}
 
 async function doTest(id) {
   try {
@@ -318,6 +420,7 @@ function showAddModal() {
   document.getElementById('addDisplayName').value = '';
   document.getElementById('addBearerToken').value = '';
   document.getElementById('addVwUrl').value = '';
+  document.getElementById('addProtectionMode').value = 'standard';
   document.getElementById('addEmail').focus();
 }
 
@@ -331,6 +434,7 @@ async function doAddAccount() {
   const displayName = document.getElementById('addDisplayName').value.trim() || undefined;
   const bearerToken = document.getElementById('addBearerToken').value.trim() || undefined;
   const vaultwardenUrl = document.getElementById('addVwUrl').value.trim() || undefined;
+  const protectionMode = document.getElementById('addProtectionMode').value;
 
   if (!email || !masterPassword) {
     showMsg('addMsg', 'Email and Master Password are required', 'error');
@@ -343,9 +447,11 @@ async function doAddAccount() {
   document.getElementById('addMsg').innerHTML = '<div class="msg msg-info">Connecting to Vaultwarden, fetching API key, starting bw serve... This may take 30-60 seconds.</div>';
 
   try {
-    const result = await api('POST', '/accounts', { email, masterPassword, displayName, bearerToken, vaultwardenUrl });
+    const result = await api('POST', '/accounts', { email, masterPassword, displayName, bearerToken, vaultwardenUrl, protectionMode });
     hideAddModal();
-    showMsg('mainMsg', `Account added! Bearer token: <code style="user-select:all;cursor:pointer" onclick="copyToken(\'${result.account.bearer_token}\')">${result.account.bearer_token}</code>`, 'success');
+    const t = esc(result.account.bearer_token);
+    document.getElementById('mainMsg').innerHTML = `<div class="msg msg-success">Account added! Bearer token: <code style="user-select:all;cursor:pointer" onclick="copyToken('${t}')">${t}</code></div>`;
+    setTimeout(() => { document.getElementById('mainMsg').innerHTML = ''; }, 10000);
     loadAccounts();
   } catch (err) {
     showMsg('addMsg', err.message, 'error');

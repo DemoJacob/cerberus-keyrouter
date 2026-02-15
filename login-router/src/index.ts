@@ -13,6 +13,7 @@ import { authMiddleware } from './auth-middleware.js';
 import { initConfigDb } from './config-db.js';
 import { startAllAccounts, migrateLegacyEnv } from './account-manager.js';
 import { createAdminRouter } from './admin-api.js';
+import { cleanupExpiredApprovals } from './approval-manager.js';
 
 const PORT = parseInt(process.env.MCP_PORT || '8899', 10);
 const CDP_REMOTE_URL = process.env.CDP_URL || 'http://host.docker.internal:18800';
@@ -64,6 +65,7 @@ function loadHtml(filename: string): string {
 
 const auditHtml = loadHtml('audit-frontend.html');
 const adminHtml = loadHtml('admin-frontend.html');
+const approveHtml = loadHtml('approve-frontend.html');
 
 app.get('/audit', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
@@ -73,6 +75,11 @@ app.get('/audit', (_req, res) => {
 app.get('/admin', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(adminHtml);
+});
+
+app.get('/approve', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(approveHtml);
 });
 
 // Admin API
@@ -156,12 +163,16 @@ async function start(): Promise<void> {
   // Start CDP proxy
   await startCdpProxy(CDP_REMOTE_URL);
 
+  // Start expired approval cleanup (every 60 seconds)
+  setInterval(cleanupExpiredApprovals, 60_000);
+
   // Start HTTP server
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Cerberus login-router MCP server listening on 0.0.0.0:${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
     console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
     console.log(`Admin panel:  http://localhost:${PORT}/admin`);
+    console.log(`Approve page: http://localhost:${PORT}/approve`);
     console.log(`Audit log:    http://localhost:${PORT}/audit`);
   });
 }

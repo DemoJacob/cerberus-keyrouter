@@ -16,7 +16,7 @@ const ADMIN_TOKEN = process.env.VW_ADMIN_TOKEN || '';
 const PUBLIC_PATHS = new Set(['/health']);
 
 // Admin-protected pages — served as HTML (auth handled client-side via sessionStorage)
-const ADMIN_HTML_PATHS = new Set(['/admin', '/audit']);
+const ADMIN_HTML_PATHS = new Set(['/admin', '/audit', '/approve']);
 
 // Admin-protected APIs — require Bearer admin token
 const ADMIN_API_PREFIXES = ['/api/admin', '/api/audit'];

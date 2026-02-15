@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Cerberus Approve</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; padding: 16px; max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 16px; color: #58a6ff; text-align: center; }
+  h2 { font-size: 1rem; margin: 20px 0 10px; color: #8b949e; }
+
+  /* Login */
+  #loginView { max-width: 400px; margin: 60px auto; }
+  #loginView h1 { margin-bottom: 20px; }
+
+  /* Forms */
+  .form-group { margin-bottom: 10px; }
+  .form-group label { display: block; font-size: 0.82rem; color: #8b949e; margin-bottom: 4px; }
+  input, select { width: 100%; background: #161b22; border: 1px solid #30363d; color: #e1e4e8; padding: 12px 14px; border-radius: 8px; font-size: 1rem; -webkit-appearance: none; }
+  input::placeholder { color: #484f58; }
+  select { cursor: pointer; }
+
+  .btn { display: block; width: 100%; background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 14px 16px; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 600; margin-top: 10px; -webkit-appearance: none; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn-primary:hover { background: #388bfd; }
+  .btn-danger { background: #4a1518; border-color: #f85149; color: #f85149; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .card-title { font-size: 0.85rem; color: #8b949e; margin-bottom: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: 0.85rem; }
+  .msg-error { background: #4a1518; color: #f85149; }
+  .msg-success { background: #0d4429; color: #3fb950; }
+  .msg-info { background: #0d3347; color: #58a6ff; }
+
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+  .badge-locked { background: #4a1518; color: #f85149; }
+  .badge-unlocked { background: #0d4429; color: #3fb950; }
+
+  .pending-item { background: #21262d; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .pending-item .info { font-size: 0.85rem; }
+  .pending-item .info .vault { font-weight: 600; color: #e1e4e8; }
+  .pending-item .info .time { color: #484f58; font-size: 0.75rem; }
+  .pending-item .code { font-family: monospace; font-size: 1.1rem; color: #58a6ff; font-weight: 700; }
+
+  .nav-links { text-align: center; margin-bottom: 16px; }
+  .nav-links a { color: #58a6ff; text-decoration: none; font-size: 0.85rem; margin: 0 8px; }
+
+  .empty { text-align: center; padding: 20px; color: #484f58; font-size: 0.85rem; }
+
+  .account-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .account-row:last-child { border: none; }
+  .account-row .email { font-size: 0.85rem; flex: 1; }
+  .account-row .actions { display: flex; gap: 6px; }
+  .account-row .btn { width: auto; padding: 8px 14px; margin: 0; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<!-- Login View -->
+<div id="loginView">
+  <h1>Cerberus Approve</h1>
+  <div id="loginMsg"></div>
+  <div class="form-group">
+    <label>Admin Password</label>
+    <input type="password" id="adminToken" placeholder="Enter admin password..." />
+  </div>
+  <button class="btn btn-primary" onclick="doLogin()">Login</button>
+</div>
+
+<!-- Main View -->
+<div id="mainView" style="display:none">
+  <h1>Cerberus Approve</h1>
+  <div class="nav-links">
+    <a href="/admin">Admin Panel</a>
+    <a href="/audit">Audit Log</a>
+    <a href="#" onclick="doLogout()">Logout</a>
+  </div>
+  <div id="mainMsg"></div>
+
+  <!-- Unlock Vault -->
+  <div class="card">
+    <div class="card-title">Unlock Vault</div>
+    <div id="unlockAccounts"></div>
+  </div>
+
+  <!-- Approve Login -->
+  <div class="card">
+    <div class="card-title">Approve Login Request</div>
+    <div class="form-group">
+      <input type="text" id="approvalCode" placeholder="Enter 4-digit approval code" maxlength="4" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+    </div>
+    <button class="btn btn-primary" onclick="doApprove()">Approve</button>
+  </div>
+
+  <!-- Pending Approvals -->
+  <div class="card">
+    <div class="card-title">Pending Requests <span id="pendingCount"></span></div>
+    <div id="pendingList"><div class="empty">No pending requests</div></div>
+  </div>
+</div>
+
+<!-- Unlock Modal -->
+<div id="unlockModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:100;display:none;justify-content:center;align-items:center;">
+  <div class="card" style="width:90%;max-width:400px;margin:auto;margin-top:30vh;">
+    <div class="card-title">Unlock Account</div>
+    <div id="unlockMsg"></div>
+    <div id="unlockEmail" style="font-size:0.9rem;margin-bottom:10px;color:#58a6ff;"></div>
+    <div class="form-group">
+      <label>Master Password</label>
+      <input type="password" id="unlockPassword" placeholder="Vaultwarden master password" />
+    </div>
+    <button class="btn btn-primary" id="unlockBtn" onclick="doUnlock()">Unlock</button>
+    <button class="btn" onclick="hideUnlockModal()" style="margin-top:6px;">Cancel</button>
+  </div>
+</div>
+
+<script>
+let token = sessionStorage.getItem('adminToken') || '';
+let pollInterval = null;
+let unlockAccountId = null;
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch('/api/admin' + path, opts).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  });
+}
+
+function showMsg(id, text, type) {
+  document.getElementById(id).innerHTML = `<div class="msg msg-${esc(type)}">${esc(text)}</div>`;
+  if (type !== 'error') setTimeout(() => { document.getElementById(id).innerHTML = ''; }, 5000);
+}
+
+// --- Auth ---
+function doLogin() {
+  token = document.getElementById('adminToken').value.trim();
+  if (!token) return;
+  api('GET', '/settings').then(() => {
+    sessionStorage.setItem('adminToken', token);
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadAll();
+    startPolling();
+  }).catch(err => {
+    showMsg('loginMsg', 'Login failed: ' + err.message, 'error');
+  });
+}
+
+function doLogout() {
+  sessionStorage.removeItem('adminToken');
+  token = '';
+  stopPolling();
+  document.getElementById('loginView').style.display = 'block';
+  document.getElementById('mainView').style.display = 'none';
+}
+
+document.getElementById('adminToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// --- Load ---
+async function loadAll() {
+  await loadAccounts();
+  await loadPending();
+}
+
+async function loadAccounts() {
+  try {
+    const accounts = await api('GET', '/accounts');
+    const advanced = accounts.filter(a => a.protection_mode === 'advanced');
+    const el = document.getElementById('unlockAccounts');
+    if (advanced.length === 0) {
+      el.innerHTML = '<div class="empty">No advanced-mode accounts</div>';
+      return;
+    }
+    el.innerHTML = advanced.map(a => `<div class="account-row">
+      <span class="email">${esc(a.email)} <span class="badge badge-${a.unlocked ? 'unlocked' : 'locked'}">${a.unlocked ? 'unlocked' : 'locked'}</span></span>
+      <span class="actions">
+        ${a.unlocked
+          ? `<button class="btn btn-danger" onclick="doLock('${esc(a.id)}')">Lock</button>`
+          : `<button class="btn btn-primary" onclick="showUnlockModal('${esc(a.id)}', '${esc(a.email)}')">Unlock</button>`
+        }
+      </span>
+    </div>`).join('');
+  } catch (err) {
+    document.getElementById('unlockAccounts').innerHTML = `<div class="empty">Failed: ${esc(err.message)}</div>`;
+  }
+}
+
+async function loadPending() {
+  try {
+    const data = await api('GET', '/approvals/pending');
+    const el = document.getElementById('pendingList');
+    const count = document.getElementById('pendingCount');
+    if (!data.approvals || data.approvals.length === 0) {
+      el.innerHTML = '<div class="empty">No pending requests</div>';
+      count.textContent = '';
+      return;
+    }
+    count.textContent = `(${data.approvals.length})`;
+    el.innerHTML = data.approvals.map(a => {
+      const ago = Math.round((Date.now() - new Date(a.created_at + 'Z').getTime()) / 1000);
+      return `<div class="pending-item">
+        <div class="info">
+          <div class="vault">${esc(a.vault_item)}</div>
+          <div class="time">${ago}s ago</div>
+        </div>
+        <div class="code">${esc(a.approval_code)}</div>
+      </div>`;
+    }).join('');
+  } catch {
+    // Silently fail polling
+  }
+}
+
+// --- Unlock ---
+function showUnlockModal(id, email) {
+  unlockAccountId = id;
+  document.getElementById('unlockEmail').textContent = email;
+  document.getElementById('unlockPassword').value = '';
+  document.getElementById('unlockMsg').innerHTML = '';
+  document.getElementById('unlockModal').style.display = 'flex';
+  document.getElementById('unlockPassword').focus();
+}
+
+function hideUnlockModal() {
+  document.getElementById('unlockModal').style.display = 'none';
+  unlockAccountId = null;
+}
+
+async function doUnlock() {
+  const pw = document.getElementById('unlockPassword').value;
+  if (!pw) return;
+  const btn = document.getElementById('unlockBtn');
+  btn.disabled = true;
+  btn.textContent = 'Unlocking...';
+  try {
+    await api('POST', `/accounts/${unlockAccountId}/unlock`, { masterPassword: pw });
+    hideUnlockModal();
+    showMsg('mainMsg', 'Account unlocked successfully', 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('unlockMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Unlock';
+  }
+}
+
+document.getElementById('unlockPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doUnlock();
+});
+
+async function doLock(id) {
+  try {
+    await api('POST', `/accounts/${id}/lock`);
+    showMsg('mainMsg', 'Account locked', 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', err.message, 'error');
+  }
+}
+
+// --- Approve ---
+async function doApprove() {
+  const code = document.getElementById('approvalCode').value.trim();
+  if (!code) return;
+  try {
+    const result = await api('POST', '/approvals/approve', { code });
+    showMsg('mainMsg', result.message || 'Approved', 'success');
+    document.getElementById('approvalCode').value = '';
+    loadPending();
+  } catch (err) {
+    showMsg('mainMsg', err.message, 'error');
+  }
+}
+
+document.getElementById('approvalCode').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doApprove();
+});
+
+// --- Polling ---
+function startPolling() {
+  stopPolling();
+  pollInterval = setInterval(() => {
+    loadPending();
+    loadAccounts();
+  }, 3000);
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+}
+
+// --- Init ---
+if (token) {
+  api('GET', '/settings').then(() => {
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadAll();
+    startPolling();
+  }).catch(() => {
+    sessionStorage.removeItem('adminToken');
+    token = '';
+  });
+}
+</script>
+</body>
+</html>

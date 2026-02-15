@@ -37,6 +37,7 @@ COPY --from=builder /app/dist ./dist
 # Copy frontend HTML files to dist
 COPY src/audit-frontend.html ./dist/audit-frontend.html
 COPY src/admin-frontend.html ./dist/admin-frontend.html
+COPY src/approve-frontend.html ./dist/approve-frontend.html
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh

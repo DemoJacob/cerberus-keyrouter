@@ -8,6 +8,9 @@ import { logAudit } from './audit-logger.js';
 import { checkRateLimit, recordAttempt } from './rate-limiter.js';
 import { verifyUrl } from './url-verifier.js';
 import type { Account } from './config-db.js';
+import { requestApproval, waitForApproval } from './approval-manager.js';
+import { notifyLoginApproval, notifyLoginResult } from './telegram-notifier.js';
+import { isAccountUnlocked } from './account-manager.js';
 
 // --- Step type definitions ---
 
@@ -100,7 +103,63 @@ export function registerTools(server: McpServer, account?: Account): void {
           };
         }
 
-        // 3. Fetch credentials from vault (using account's bw serve port)
+        // 3. Advanced mode: check unlock status and require approval
+        if (account && account.protection_mode === 'advanced') {
+          if (!isAccountUnlocked(account.id)) {
+            logAudit({
+              action: 'secure_login',
+              vaultItem,
+              result: 'error',
+              error: 'Account is locked (advanced mode)',
+              durationMs: Date.now() - startTime,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'error',
+                  message: `Account ${account.email} is in advanced protection mode and currently locked. An admin must unlock it via the Approve page.`,
+                }),
+              }],
+              isError: true,
+            };
+          }
+
+          const approval = requestApproval(account.id, vaultItem);
+          console.log(`[mcp] Approval requested for ${vaultItem} (code: ${approval.approval_code}, account: ${account.email})`);
+
+          // Send Telegram notification (non-blocking if Telegram not configured)
+          await notifyLoginApproval(vaultItem, approval.approval_code, account.email);
+
+          // Wait for approval (polls DB, max 5 minutes)
+          const approved = await waitForApproval(approval.id);
+
+          // Notify result
+          await notifyLoginResult(vaultItem, approved);
+
+          if (!approved) {
+            recordAttempt(vaultItem, false);
+            logAudit({
+              action: 'secure_login',
+              vaultItem,
+              result: 'error',
+              error: 'Approval denied or timed out',
+              durationMs: Date.now() - startTime,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'error',
+                  message: 'Login approval was not received within the timeout period. Please approve via the Approve page.',
+                }),
+              }],
+              isError: true,
+            };
+          }
+        }
+
+        // 4. Fetch credentials from vault (using account's bw serve port)
         credentials = await getCredentials(vaultItem, bwServePort);
 
         // 4. Verify URL matches vault URI

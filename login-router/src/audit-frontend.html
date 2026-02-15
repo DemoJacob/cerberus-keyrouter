@@ -112,6 +112,11 @@
 <script>
 let token = sessionStorage.getItem('adminToken') || '';
 let currentPage = 1;
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 const perPage = 50;
 let autoRefreshInterval = null;
 
@@ -128,7 +133,7 @@ function doLogin() {
     document.getElementById('mainView').style.display = 'block';
     loadPage(1);
   }).catch(err => {
-    document.getElementById('loginMsg').innerHTML = '<div class="msg-error">Login failed: ' + err.message + '</div>';
+    document.getElementById('loginMsg').innerHTML = '<div class="msg-error">Login failed: ' + esc(err.message) + '</div>';
   });
 }
 
@@ -146,7 +151,8 @@ document.getElementById('adminToken').addEventListener('keydown', e => {
 // --- Data ---
 function badge(text) {
   if (!text) return '-';
-  return `<span class="badge badge-${text}">${text}</span>`;
+  const s = esc(text);
+  return `<span class="badge badge-${s}">${s}</span>`;
 }
 
 function formatTs(ts) {
@@ -195,17 +201,17 @@ async function loadPage(page) {
 
     body.innerHTML = data.rows.map(r => `<tr>
       <td>${formatTs(r.timestamp)}</td>
-      <td>${r.action || '-'}</td>
-      <td>${r.vault_item || '-'}</td>
-      <td>${r.username || '-'}</td>
+      <td>${esc(r.action) || '-'}</td>
+      <td>${esc(r.vault_item) || '-'}</td>
+      <td>${esc(r.username) || '-'}</td>
       <td>${r.url_match ? badge(r.url_match) : '-'}</td>
       <td>${badge(r.result)}</td>
       <td>${r.steps_completed != null ? r.steps_completed : '-'}</td>
       <td>${formatDuration(r.duration_ms)}</td>
-      <td class="error-cell" title="${(r.error || '').replace(/"/g, '&quot;')}">${r.error || '-'}</td>
+      <td class="error-cell" title="${esc(r.error)}">${esc(r.error) || '-'}</td>
     </tr>`).join('');
   } catch (err) {
-    document.getElementById('logBody').innerHTML = `<tr><td colspan="9" class="empty">Failed to load: ${err.message}</td></tr>`;
+    document.getElementById('logBody').innerHTML = `<tr><td colspan="9" class="empty">Failed to load: ${esc(err.message)}</td></tr>`;
   }
 }
 

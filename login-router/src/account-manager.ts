@@ -3,8 +3,11 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   getActiveAccounts, getAccountById, addAccount, removeAccount as dbRemoveAccount,
-  updateAccount, allocatePort, generateId, getSetting, updateSetting, type Account,
+  updateAccount, allocatePort, generateId, getSetting, updateSetting, getAdvancedModeAccounts,
+  type Account,
 } from './config-db.js';
+import { getCachedMasterPassword, cacheMasterPassword, clearCachedMasterPassword } from './approval-manager.js';
+import { notifyUnlockNeeded, notifySystemRestarted } from './telegram-notifier.js';
 
 // Encryption key is auto-generated and stored in a file, completely independent
 // of VW_ADMIN_TOKEN. This means changing the admin token never affects encrypted data.
@@ -141,7 +144,17 @@ export async function startBwServe(account: Account): Promise<void> {
   await stopBwServe(account.id);
 
   const vwUrl = getVaultwardenUrl(account);
-  const masterPassword = decryptPassword(account.master_password_enc);
+
+  let masterPassword: string;
+  if (account.protection_mode === 'advanced') {
+    const cached = getCachedMasterPassword(account.id);
+    if (!cached) {
+      throw new Error(`Account ${account.email} is in advanced mode and not unlocked. Please provide master password via the Approve page.`);
+    }
+    masterPassword = cached;
+  } else {
+    masterPassword = decryptPassword(account.master_password_enc);
+  }
 
   const bwEnv: Record<string, string> = {
     BW_CLIENTID: account.client_id,
@@ -237,6 +250,7 @@ export async function registerAccount(
   vaultwardenUrl?: string,
   bearerToken?: string,
   displayName?: string,
+  protectionMode: 'standard' | 'advanced' = 'standard',
 ): Promise<Account> {
   const vwUrl = vaultwardenUrl || getSetting('vaultwarden_url') || 'https://vaultwarden:80';
   const fetchOpts = { headers: {} as Record<string, string> };
@@ -306,7 +320,9 @@ export async function registerAccount(
   // Step 5: Generate bearer token and save
   const token = bearerToken || crypto.randomBytes(32).toString('hex');
   const port = allocatePort();
-  const encryptedPassword = encryptPassword(masterPassword);
+
+  // For advanced mode: don't store master password on disk
+  const encryptedPassword = protectionMode === 'advanced' ? '' : encryptPassword(masterPassword);
 
   const account = addAccount({
     id: generateId(),
@@ -320,13 +336,22 @@ export async function registerAccount(
     display_name: displayName || null,
     bw_serve_port: port,
     status: 'active',
+    protection_mode: protectionMode,
   });
 
   // Step 6: Start bw serve
+  // For advanced mode, cache the password in memory first
+  if (protectionMode === 'advanced') {
+    cacheMasterPassword(account.id, masterPassword);
+  }
+
   try {
     await startBwServe(account);
   } catch (err) {
     // Cleanup on failure
+    if (protectionMode === 'advanced') {
+      clearCachedMasterPassword(account.id);
+    }
     dbRemoveAccount(account.id);
     throw new Error(`Account registered but bw serve failed: ${(err as Error).message}`);
   }
@@ -369,7 +394,7 @@ export async function testAccount(id: string): Promise<{ ok: boolean; message: s
 // --- Startup: restore all active accounts ---
 
 export async function startAllAccounts(): Promise<void> {
-  // Load or create encryption key (independent of admin token)
+  // Load or create encryption key (independent of admin token, still needed for standard mode accounts)
   initEncryption();
 
   const accounts = getActiveAccounts();
@@ -378,14 +403,76 @@ export async function startAllAccounts(): Promise<void> {
     return;
   }
 
-  console.log(`[account-manager] Starting ${accounts.length} account(s)...`);
-  for (const account of accounts) {
+  const standardAccounts = accounts.filter(a => a.protection_mode !== 'advanced');
+  const advancedAccounts = accounts.filter(a => a.protection_mode === 'advanced');
+
+  console.log(`[account-manager] Starting ${standardAccounts.length} standard account(s), ${advancedAccounts.length} advanced account(s) await unlock...`);
+
+  for (const account of standardAccounts) {
     try {
       await startBwServe(account);
     } catch (err) {
       console.error(`[account-manager] Failed to start ${account.email}:`, (err as Error).message);
     }
   }
+
+  // Notify about advanced accounts needing unlock
+  if (advancedAccounts.length > 0) {
+    for (const account of advancedAccounts) {
+      console.log(`[account-manager] ${account.email} (advanced mode) — waiting for manual unlock`);
+    }
+    // Send single Telegram notification
+    await notifySystemRestarted(advancedAccounts.length);
+  }
+}
+
+// --- Advanced mode unlock ---
+
+export async function unlockAdvancedAccount(accountId: string, masterPassword: string): Promise<void> {
+  const account = getAccountById(accountId);
+  if (!account) throw new Error('Account not found');
+  if (account.protection_mode !== 'advanced') throw new Error('Account is not in advanced mode');
+
+  // Verify password by computing hash and comparing
+  const vwUrl = getVaultwardenUrl(account);
+  const preloginRes = await fetch(`${vwUrl}/api/accounts/prelogin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: account.email }),
+  });
+  if (!preloginRes.ok) {
+    throw new Error(`Prelogin failed: ${preloginRes.status}`);
+  }
+  const prelogin = await preloginRes.json() as { kdfIterations?: number; KdfIterations?: number };
+  const kdfIterations = prelogin.kdfIterations ?? prelogin.KdfIterations ?? 600000;
+  const computedHash = await computeMasterPasswordHash(account.email, masterPassword, kdfIterations);
+
+  if (computedHash !== account.master_password_hash) {
+    throw new Error('Invalid master password');
+  }
+
+  // Cache in memory (8h TTL)
+  cacheMasterPassword(accountId, masterPassword);
+
+  // Start bw serve (will use cached password)
+  await startBwServe(account);
+  console.log(`[account-manager] Advanced account ${account.email} unlocked successfully`);
+}
+
+export function isAccountUnlocked(accountId: string): boolean {
+  const account = getAccountById(accountId);
+  if (!account) return false;
+  if (account.protection_mode !== 'advanced') return true; // standard mode is always "unlocked"
+  // For advanced mode, check both cache and bw serve running
+  const cached = getCachedMasterPassword(accountId) !== null;
+  const running = instances.has(accountId) && instances.get(accountId)!.ready;
+  return cached && running;
+}
+
+export async function lockAdvancedAccount(accountId: string): Promise<void> {
+  clearCachedMasterPassword(accountId);
+  await stopBwServe(accountId);
+  console.log(`[account-manager] Advanced account ${accountId} locked`);
 }
 
 // --- Legacy migration ---
@@ -425,6 +512,7 @@ export async function migrateLegacyEnv(): Promise<string | null> {
     display_name: 'Migrated Account',
     bw_serve_port: port,
     status: 'active',
+    protection_mode: 'standard',
   });
 
   console.log(`[account-manager] ✓ Legacy account migrated`);
