@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
   getSettings, updateSetting, getAccounts, getAccountById,
   updateAccount, type Account,
@@ -7,25 +7,6 @@ import {
   registerAccount, deleteAccount, restartAccount, testAccount,
   getBwServeStatus,
 } from './account-manager.js';
-
-const ADMIN_TOKEN = process.env.VW_ADMIN_TOKEN || '';
-
-function adminAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!ADMIN_TOKEN) {
-    res.status(503).json({ error: 'VW_ADMIN_TOKEN not configured' });
-    return;
-  }
-
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-
-  if (!token || token !== ADMIN_TOKEN) {
-    res.status(401).json({ error: 'Invalid admin token' });
-    return;
-  }
-
-  next();
-}
 
 function sanitizeAccount(account: Account): Record<string, unknown> {
   return {
@@ -44,7 +25,7 @@ function sanitizeAccount(account: Account): Record<string, unknown> {
 
 export function createAdminRouter(): Router {
   const router = Router();
-  router.use(adminAuth);
+  // Auth is handled by authMiddleware in auth-middleware.ts
 
   // --- Settings ---
 

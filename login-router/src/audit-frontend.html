@@ -8,6 +8,9 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; padding: 20px; }
   h1 { font-size: 1.4rem; margin-bottom: 16px; color: #58a6ff; }
+  .nav-links { margin-bottom: 20px; }
+  .nav-links a { color: #58a6ff; text-decoration: none; font-size: 0.85rem; margin-right: 16px; }
+  .nav-links a:hover { text-decoration: underline; }
   .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
   .filters input, .filters select { background: #161b22; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; }
   .filters input::placeholder { color: #484f58; }
@@ -34,10 +37,38 @@
   .pagination span { color: #8b949e; font-size: 0.85rem; }
   .error-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: #f85149; }
   .empty { text-align: center; padding: 40px; color: #484f58; }
+  /* Login */
+  #loginView { max-width: 400px; margin: 80px auto; }
+  #loginView h1 { text-align: center; margin-bottom: 24px; }
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 0.82rem; color: #8b949e; margin-bottom: 4px; }
+  .form-group input { width: 100%; background: #161b22; border: 1px solid #30363d; color: #e1e4e8; padding: 8px 12px; border-radius: 6px; font-size: 0.9rem; }
+  .btn { background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn-primary:hover { background: #388bfd; }
+  .msg-error { background: #4a1518; color: #f85149; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
 </style>
 </head>
 <body>
+
+<!-- Login View -->
+<div id="loginView">
+  <h1>Cerberus Audit Log</h1>
+  <div id="loginMsg"></div>
+  <div class="form-group">
+    <label>Admin Token</label>
+    <input type="password" id="adminToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+  </div>
+  <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doLogin()">Login</button>
+</div>
+
+<!-- Main View -->
+<div id="mainView" style="display:none">
 <h1>Cerberus Audit Log</h1>
+<div class="nav-links">
+  <a href="/admin">Admin Panel</a>
+  <a href="#" onclick="doLogout()">Logout</a>
+</div>
 
 <div class="filters">
   <input type="text" id="filterVaultItem" placeholder="Vault item..." />
@@ -76,16 +107,46 @@
   <span id="pageInfo">-</span>
   <button id="nextBtn" onclick="loadPage(currentPage+1)">Next</button>
 </div>
+</div>
 
 <script>
+let token = sessionStorage.getItem('adminToken') || '';
 let currentPage = 1;
 const perPage = 50;
 let autoRefreshInterval = null;
 
-function badge(text, prefix) {
+// --- Auth ---
+function doLogin() {
+  token = document.getElementById('adminToken').value.trim();
+  if (!token) return;
+  fetch('/api/audit?page=1&limit=1', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(r => {
+    if (!r.ok) throw new Error('Invalid token');
+    sessionStorage.setItem('adminToken', token);
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadPage(1);
+  }).catch(err => {
+    document.getElementById('loginMsg').innerHTML = '<div class="msg-error">Login failed: ' + err.message + '</div>';
+  });
+}
+
+function doLogout() {
+  sessionStorage.removeItem('adminToken');
+  token = '';
+  document.getElementById('loginView').style.display = 'block';
+  document.getElementById('mainView').style.display = 'none';
+}
+
+document.getElementById('adminToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// --- Data ---
+function badge(text) {
   if (!text) return '-';
-  const cls = prefix ? `badge-${text}` : `badge-${text}`;
-  return `<span class="badge ${cls}">${text}</span>`;
+  return `<span class="badge badge-${text}">${text}</span>`;
 }
 
 function formatTs(ts) {
@@ -115,7 +176,10 @@ async function loadPage(page) {
   if (to) params.set('to', to);
 
   try {
-    const resp = await fetch('/api/audit?' + params);
+    const resp = await fetch('/api/audit?' + params, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (resp.status === 401) { doLogout(); return; }
     const data = await resp.json();
     const totalPages = Math.ceil(data.total / perPage) || 1;
 
@@ -159,7 +223,20 @@ function toggleAutoRefresh() {
   }
 }
 
-loadPage(1);
+// --- Init ---
+if (token) {
+  fetch('/api/audit?page=1&limit=1', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(r => {
+    if (!r.ok) throw new Error();
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadPage(1);
+  }).catch(() => {
+    sessionStorage.removeItem('adminToken');
+    token = '';
+  });
+}
 </script>
 </body>
 </html>
