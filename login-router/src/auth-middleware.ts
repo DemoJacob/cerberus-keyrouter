@@ -9,8 +9,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  // Health check is always unauthenticated
-  if (req.path === '/health') {
+  // Public endpoints (no auth required)
+  if (req.path === '/health' || req.path === '/audit' || req.path === '/api/audit') {
     next();
     return;
   }
