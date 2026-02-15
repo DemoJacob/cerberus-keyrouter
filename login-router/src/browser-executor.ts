@@ -31,7 +31,7 @@ async function getConnectedBrowser(): Promise<Browser> {
   throw new Error(`Failed to connect to CDP at ${CDP_URL}: ${truncateError(lastError?.message)}`);
 }
 
-async function getActivePage(browser: Browser, targetUrl?: string): Promise<Page> {
+async function getActivePage(browser: Browser, targetUrl?: string, steps?: Step[]): Promise<Page> {
   const contexts = browser.contexts();
   if (contexts.length === 0) {
     throw new Error('No browser contexts available');
@@ -47,17 +47,38 @@ async function getActivePage(browser: Browser, targetUrl?: string): Promise<Page
     throw new Error('No pages available in browser context');
   }
 
-  // If targetUrl provided, find the page whose URL matches the domain
+  // If targetUrl provided, find matching pages by domain
   if (targetUrl) {
     try {
       const targetHost = new URL(targetUrl).hostname.replace(/^www\./, '');
-      const matched = allPages.find(p => {
+      const matched = allPages.filter(p => {
         try {
           const pageHost = new URL(p.url()).hostname.replace(/^www\./, '');
           return pageHost === targetHost || pageHost.endsWith('.' + targetHost);
         } catch { return false; }
       });
-      if (matched) return matched;
+
+      if (matched.length === 1) return matched[0];
+
+      if (matched.length > 1) {
+        // Multiple tabs with same domain — check which has the first step's selector
+        const firstSelector = steps?.find(s => 'selector' in s && s.selector)?.selector;
+        if (firstSelector) {
+          // Check from newest to oldest (last in array = newest)
+          for (let i = matched.length - 1; i >= 0; i--) {
+            try {
+              const count = await matched[i].locator(firstSelector).count();
+              if (count > 0) {
+                console.log(`[browser] Matched tab ${i + 1}/${matched.length} by selector "${firstSelector}": ${matched[i].url()}`);
+                return matched[i];
+              }
+            } catch { /* selector check failed, try next */ }
+          }
+          console.log(`[browser] No tab has selector "${firstSelector}", using newest of ${matched.length} matched tabs`);
+        }
+        // No selector match or no steps — return newest tab
+        return matched[matched.length - 1];
+      }
     } catch { /* fall through to default */ }
   }
 
@@ -66,7 +87,7 @@ async function getActivePage(browser: Browser, targetUrl?: string): Promise<Page
 
 export async function executeSteps(steps: Step[], targetUrl?: string): Promise<{ success: boolean; message: string; stepsCompleted: number }> {
   const browser = await getConnectedBrowser();
-  const page = await getActivePage(browser, targetUrl);
+  const page = await getActivePage(browser, targetUrl, steps);
 
   let stepsCompleted = 0;
 
