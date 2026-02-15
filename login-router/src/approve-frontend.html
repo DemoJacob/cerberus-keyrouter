@@ -65,10 +65,30 @@
   <h1>Cerberus Approve</h1>
   <div id="loginMsg"></div>
   <div class="form-group">
-    <label>Admin Password</label>
-    <input type="password" id="adminToken" placeholder="Enter admin password..." />
+    <label id="loginLabel">Password</label>
+    <input type="password" id="loginPassword" placeholder="Enter password..." />
   </div>
   <button class="btn btn-primary" onclick="doLogin()">Login</button>
+  <p id="forgotPasswordLink" style="display:none;text-align:center;margin-top:12px;">
+    <a href="#" style="color:#8b949e;font-size:0.82rem;text-decoration:none;" onclick="showResetModal()">Forgot password?</a>
+  </p>
+</div>
+
+<!-- Reset Password Modal -->
+<div id="resetModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:100;justify-content:center;align-items:center;">
+  <div class="card" style="width:90%;max-width:400px;margin:auto;margin-top:30vh;">
+    <div class="card-title">Reset Admin Password</div>
+    <p style="font-size:0.82rem;color:#8b949e;margin-bottom:12px;">
+      Enter VW_ADMIN_TOKEN from your .env file to reset the admin password.
+    </p>
+    <div id="resetMsg"></div>
+    <div class="form-group">
+      <label>VW_ADMIN_TOKEN</label>
+      <input type="password" id="resetToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+    </div>
+    <button class="btn btn-danger" id="resetBtn" onclick="doResetPassword()">Reset Password</button>
+    <button class="btn" onclick="hideResetModal()" style="margin-top:6px;">Cancel</button>
+  </div>
 </div>
 
 <!-- Main View -->
@@ -147,10 +167,73 @@ function showMsg(id, text, type) {
 }
 
 // --- Auth ---
+
+async function initLoginView() {
+  try {
+    const resp = await fetch('/api/admin/auth-status');
+    const data = await resp.json();
+    const label = document.getElementById('loginLabel');
+    const input = document.getElementById('loginPassword');
+    const forgotLink = document.getElementById('forgotPasswordLink');
+    if (data.passwordConfigured) {
+      label.textContent = 'Password';
+      input.placeholder = 'Enter password...';
+      forgotLink.style.display = 'block';
+    } else {
+      label.textContent = 'Admin Token';
+      input.placeholder = 'Enter VW_ADMIN_TOKEN...';
+      forgotLink.style.display = 'none';
+    }
+  } catch {}
+}
+
+// --- Reset Password ---
+function showResetModal() {
+  document.getElementById('resetModal').style.display = 'flex';
+  document.getElementById('resetMsg').innerHTML = '';
+  document.getElementById('resetToken').value = '';
+  document.getElementById('resetToken').focus();
+}
+function hideResetModal() {
+  document.getElementById('resetModal').style.display = 'none';
+}
+async function doResetPassword() {
+  const adminToken = document.getElementById('resetToken').value.trim();
+  if (!adminToken) { showMsg('resetMsg', 'Please enter VW_ADMIN_TOKEN', 'error'); return; }
+  const btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/admin/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminToken }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    hideResetModal();
+    showMsg('loginMsg', 'Password reset successful. You can now log in with VW_ADMIN_TOKEN.', 'success');
+    initLoginView();
+  } catch (err) {
+    showMsg('resetMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('resetToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doResetPassword();
+});
+
 function doLogin() {
-  token = document.getElementById('adminToken').value.trim();
-  if (!token) return;
-  api('GET', '/settings').then(() => {
+  const password = document.getElementById('loginPassword').value.trim();
+  if (!password) return;
+  fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    token = data.token;
     sessionStorage.setItem('adminToken', token);
     document.getElementById('loginView').style.display = 'none';
     document.getElementById('mainView').style.display = 'block';
@@ -162,14 +245,16 @@ function doLogin() {
 }
 
 function doLogout() {
+  api('POST', '/logout').catch(() => {});
   sessionStorage.removeItem('adminToken');
   token = '';
   stopPolling();
   document.getElementById('loginView').style.display = 'block';
   document.getElementById('mainView').style.display = 'none';
+  initLoginView();
 }
 
-document.getElementById('adminToken').addEventListener('keydown', e => {
+document.getElementById('loginPassword').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
 
@@ -247,12 +332,21 @@ async function doUnlock() {
   const pw = document.getElementById('unlockPassword').value;
   if (!pw) return;
   const btn = document.getElementById('unlockBtn');
+  const accountId = unlockAccountId;
   btn.disabled = true;
-  btn.textContent = 'Unlocking...';
+  btn.textContent = 'Verifying...';
   try {
-    await api('POST', `/accounts/${unlockAccountId}/unlock`, { masterPassword: pw });
+    await api('POST', `/accounts/${accountId}/unlock`, { masterPassword: pw });
+    // Password verified — now poll for bw serve ready (takes 30-60s)
+    btn.textContent = 'Starting vault...';
+    showMsg('unlockMsg', 'Password verified. Starting vault service (~30s)...', 'success');
+    const unlocked = await pollUnlockStatus(accountId, 90);
     hideUnlockModal();
-    showMsg('mainMsg', 'Account unlocked successfully', 'success');
+    if (unlocked) {
+      showMsg('mainMsg', 'Account unlocked successfully', 'success');
+    } else {
+      showMsg('mainMsg', 'Vault service is still starting, please wait...', 'error');
+    }
     loadAccounts();
   } catch (err) {
     showMsg('unlockMsg', err.message, 'error');
@@ -260,6 +354,18 @@ async function doUnlock() {
     btn.disabled = false;
     btn.textContent = 'Unlock';
   }
+}
+
+async function pollUnlockStatus(accountId, maxSeconds) {
+  const deadline = Date.now() + maxSeconds * 1000;
+  while (Date.now() < deadline) {
+    try {
+      const data = await api('GET', `/accounts/${accountId}/unlock-status`);
+      if (data.unlocked) return true;
+    } catch {}
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return false;
 }
 
 document.getElementById('unlockPassword').addEventListener('keydown', e => {
@@ -311,6 +417,8 @@ function stopPolling() {
 }
 
 // --- Init ---
+initLoginView();
+
 if (token) {
   api('GET', '/settings').then(() => {
     document.getElementById('loginView').style.display = 'none';

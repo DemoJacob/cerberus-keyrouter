@@ -23,7 +23,7 @@ services:
       - ./vw-data:/data
       - certs:/ssl:ro
     environment:
-      - SIGNUPS_ALLOWED=false
+      - SIGNUPS_ALLOWED=true
       - ADMIN_TOKEN=${VW_ADMIN_TOKEN}
       - DOMAIN=https://localhost:8443
       - ROCKET_TLS={certs="/ssl/cert.pem",key="/ssl/key.pem"}

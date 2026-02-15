@@ -79,10 +79,32 @@
   <h1>Cerberus Admin</h1>
   <div id="loginMsg"></div>
   <div class="form-group">
-    <label>Admin Token</label>
-    <input type="password" id="adminToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+    <label id="loginLabel">Password</label>
+    <input type="password" id="loginPassword" placeholder="Enter password..." />
   </div>
   <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doLogin()">Login</button>
+  <p id="forgotPasswordLink" style="display:none;text-align:center;margin-top:12px;">
+    <a href="#" style="color:#8b949e;font-size:0.82rem;text-decoration:none;" onclick="showResetModal()">Forgot password?</a>
+  </p>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-bg" id="resetModal">
+  <div class="modal">
+    <h2>Reset Admin Password</h2>
+    <p style="font-size:0.85rem;color:#8b949e;margin-bottom:16px;">
+      Enter VW_ADMIN_TOKEN from your .env file to reset the admin password. After reset, you can log in with VW_ADMIN_TOKEN and set a new password.
+    </p>
+    <div id="resetMsg"></div>
+    <div class="form-group">
+      <label>VW_ADMIN_TOKEN</label>
+      <input type="password" id="resetToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="hideResetModal()">Cancel</button>
+      <button class="btn btn-danger" id="resetBtn" onclick="doResetPassword()">Reset Password</button>
+    </div>
+  </div>
 </div>
 
 <!-- Main View -->
@@ -121,6 +143,12 @@
   <p style="font-size:0.78rem;color:#484f58;margin-top:-8px;margin-bottom:16px;">
     Used for unlock reminders and login approval notifications. <a href="/approve" style="color:#58a6ff;">Open Approve Page</a>
   </p>
+
+  <!-- Admin Password -->
+  <h2>Admin Password</h2>
+  <div class="settings-row">
+    <button class="btn" onclick="showChangePasswordModal()">Change Password</button>
+  </div>
 
   <!-- Accounts -->
   <h2>
@@ -184,6 +212,48 @@
   </div>
 </div>
 
+<!-- Set Password Modal (forced on first login) -->
+<div class="modal-bg" id="setPasswordModal">
+  <div class="modal">
+    <h2>Set Admin Password</h2>
+    <p style="font-size:0.85rem;color:#8b949e;margin-bottom:16px;">
+      You logged in with VW_ADMIN_TOKEN. Please set a personal password for future logins. After this, VW_ADMIN_TOKEN will no longer work for admin access.
+    </p>
+    <div id="setPasswordMsg"></div>
+    <div class="form-group">
+      <label>New Password (min 8 characters)</label>
+      <input type="password" id="setPassword" placeholder="Enter new password..." />
+    </div>
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <input type="password" id="setPasswordConfirm" placeholder="Confirm new password..." />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="setPasswordBtn" onclick="doSetPassword()">Set Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal-bg" id="changePasswordModal">
+  <div class="modal">
+    <h2>Change Admin Password</h2>
+    <div id="changePasswordMsg"></div>
+    <div class="form-group">
+      <label>New Password (min 8 characters)</label>
+      <input type="password" id="changePassword" placeholder="Enter new password..." />
+    </div>
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <input type="password" id="changePasswordConfirm" placeholder="Confirm new password..." />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="hideChangePasswordModal()">Cancel</button>
+      <button class="btn btn-primary" id="changePasswordBtn" onclick="doChangePassword()">Change Password</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let token = sessionStorage.getItem('adminToken') || '';
 
@@ -235,28 +305,191 @@ function copyMcpConfig(bearerToken) {
 
 // --- Auth ---
 
+async function initLoginView() {
+  try {
+    const resp = await fetch('/api/admin/auth-status');
+    const data = await resp.json();
+    const label = document.getElementById('loginLabel');
+    const input = document.getElementById('loginPassword');
+    const forgotLink = document.getElementById('forgotPasswordLink');
+    if (data.passwordConfigured) {
+      label.textContent = 'Password';
+      input.placeholder = 'Enter password...';
+      forgotLink.style.display = 'block';
+    } else {
+      label.textContent = 'Admin Token';
+      input.placeholder = 'Enter VW_ADMIN_TOKEN...';
+      forgotLink.style.display = 'none';
+    }
+  } catch {
+    // Fallback — show generic label
+  }
+}
+
+// --- Reset Password ---
+
+function showResetModal() {
+  document.getElementById('resetModal').classList.add('show');
+  document.getElementById('resetMsg').innerHTML = '';
+  document.getElementById('resetToken').value = '';
+  document.getElementById('resetToken').focus();
+}
+
+function hideResetModal() {
+  document.getElementById('resetModal').classList.remove('show');
+}
+
+async function doResetPassword() {
+  const adminToken = document.getElementById('resetToken').value.trim();
+  if (!adminToken) {
+    showMsg('resetMsg', 'Please enter VW_ADMIN_TOKEN', 'error');
+    return;
+  }
+  const btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/admin/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminToken }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    hideResetModal();
+    showMsg('loginMsg', 'Password reset successful. You can now log in with VW_ADMIN_TOKEN.', 'success');
+    initLoginView();
+  } catch (err) {
+    showMsg('resetMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('resetToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doResetPassword();
+});
+
 function doLogin() {
-  token = document.getElementById('adminToken').value.trim();
-  if (!token) return;
-  api('GET', '/settings').then(() => {
+  const password = document.getElementById('loginPassword').value.trim();
+  if (!password) return;
+  fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    token = data.token;
     sessionStorage.setItem('adminToken', token);
     document.getElementById('loginView').style.display = 'none';
     document.getElementById('mainView').style.display = 'block';
     loadAll();
+    // If first login (VW_ADMIN_TOKEN), force password setup
+    if (data.firstLogin) {
+      showSetPasswordModal();
+    }
   }).catch(err => {
     showMsg('loginMsg', 'Login failed: ' + err.message, 'error');
   });
 }
 
 function doLogout() {
+  api('POST', '/logout').catch(() => {});
   sessionStorage.removeItem('adminToken');
   token = '';
   document.getElementById('loginView').style.display = 'block';
   document.getElementById('mainView').style.display = 'none';
+  initLoginView();
 }
 
-document.getElementById('adminToken').addEventListener('keydown', e => {
+document.getElementById('loginPassword').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
+});
+
+// --- Set Password (first login) ---
+
+function showSetPasswordModal() {
+  document.getElementById('setPasswordModal').classList.add('show');
+  document.getElementById('setPasswordMsg').innerHTML = '';
+  document.getElementById('setPassword').value = '';
+  document.getElementById('setPasswordConfirm').value = '';
+  document.getElementById('setPassword').focus();
+}
+
+async function doSetPassword() {
+  const pw = document.getElementById('setPassword').value;
+  const confirm = document.getElementById('setPasswordConfirm').value;
+  if (!pw || pw.length < 8) {
+    showMsg('setPasswordMsg', 'Password must be at least 8 characters', 'error');
+    return;
+  }
+  if (pw !== confirm) {
+    showMsg('setPasswordMsg', 'Passwords do not match', 'error');
+    return;
+  }
+  const btn = document.getElementById('setPasswordBtn');
+  btn.disabled = true;
+  try {
+    await api('POST', '/set-password', { password: pw, confirmPassword: confirm });
+    document.getElementById('setPasswordModal').classList.remove('show');
+    showMsg('mainMsg', 'Admin password set successfully. Use this password for future logins.', 'success');
+  } catch (err) {
+    showMsg('setPasswordMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('setPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('setPasswordConfirm').focus();
+});
+document.getElementById('setPasswordConfirm').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSetPassword();
+});
+
+// --- Change Password ---
+
+function showChangePasswordModal() {
+  document.getElementById('changePasswordModal').classList.add('show');
+  document.getElementById('changePasswordMsg').innerHTML = '';
+  document.getElementById('changePassword').value = '';
+  document.getElementById('changePasswordConfirm').value = '';
+  document.getElementById('changePassword').focus();
+}
+
+function hideChangePasswordModal() {
+  document.getElementById('changePasswordModal').classList.remove('show');
+}
+
+async function doChangePassword() {
+  const pw = document.getElementById('changePassword').value;
+  const confirm = document.getElementById('changePasswordConfirm').value;
+  if (!pw || pw.length < 8) {
+    showMsg('changePasswordMsg', 'Password must be at least 8 characters', 'error');
+    return;
+  }
+  if (pw !== confirm) {
+    showMsg('changePasswordMsg', 'Passwords do not match', 'error');
+    return;
+  }
+  const btn = document.getElementById('changePasswordBtn');
+  btn.disabled = true;
+  try {
+    await api('POST', '/set-password', { password: pw, confirmPassword: confirm });
+    hideChangePasswordModal();
+    showMsg('mainMsg', 'Password changed successfully', 'success');
+  } catch (err) {
+    showMsg('changePasswordMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('changePassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('changePasswordConfirm').focus();
+});
+document.getElementById('changePasswordConfirm').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doChangePassword();
 });
 
 // --- Load ---
@@ -462,6 +695,8 @@ async function doAddAccount() {
 }
 
 // --- Init ---
+
+initLoginView();
 
 if (token) {
   api('GET', '/settings').then(() => {

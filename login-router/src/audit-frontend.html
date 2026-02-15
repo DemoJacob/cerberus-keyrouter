@@ -46,7 +46,8 @@
   .btn { background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
   .btn-primary { background: #1f6feb; border-color: #1f6feb; }
   .btn-primary:hover { background: #388bfd; }
-  .msg-error { background: #4a1518; color: #f85149; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
+  .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
+  .msg-error { background: #4a1518; color: #f85149; }
 </style>
 </head>
 <body>
@@ -56,10 +57,32 @@
   <h1>Cerberus Audit Log</h1>
   <div id="loginMsg"></div>
   <div class="form-group">
-    <label>Admin Token</label>
-    <input type="password" id="adminToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+    <label id="loginLabel">Password</label>
+    <input type="password" id="loginPassword" placeholder="Enter password..." />
   </div>
   <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doLogin()">Login</button>
+  <p id="forgotPasswordLink" style="display:none;text-align:center;margin-top:12px;">
+    <a href="#" style="color:#8b949e;font-size:0.82rem;text-decoration:none;" onclick="showResetModal()">Forgot password?</a>
+  </p>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-bg" id="resetModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:100;justify-content:center;align-items:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:480px;max-width:90vw;">
+    <h1 style="font-size:1.1rem;margin-bottom:12px;">Reset Admin Password</h1>
+    <p style="font-size:0.85rem;color:#8b949e;margin-bottom:16px;">
+      Enter VW_ADMIN_TOKEN from your .env file to reset the admin password.
+    </p>
+    <div id="resetMsg"></div>
+    <div class="form-group">
+      <label>VW_ADMIN_TOKEN</label>
+      <input type="password" id="resetToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn" onclick="hideResetModal()">Cancel</button>
+      <button class="btn" id="resetBtn" style="background:#4a1518;border-color:#f85149;color:#f85149;" onclick="doResetPassword()">Reset Password</button>
+    </div>
+  </div>
 </div>
 
 <!-- Main View -->
@@ -121,30 +144,98 @@ const perPage = 50;
 let autoRefreshInterval = null;
 
 // --- Auth ---
+
+async function initLoginView() {
+  try {
+    const resp = await fetch('/api/admin/auth-status');
+    const data = await resp.json();
+    const label = document.getElementById('loginLabel');
+    const input = document.getElementById('loginPassword');
+    const forgotLink = document.getElementById('forgotPasswordLink');
+    if (data.passwordConfigured) {
+      label.textContent = 'Password';
+      input.placeholder = 'Enter password...';
+      forgotLink.style.display = 'block';
+    } else {
+      label.textContent = 'Admin Token';
+      input.placeholder = 'Enter VW_ADMIN_TOKEN...';
+      forgotLink.style.display = 'none';
+    }
+  } catch {}
+}
+
+// --- Reset Password ---
+function showResetModal() {
+  document.getElementById('resetModal').style.display = 'flex';
+  document.getElementById('resetMsg').innerHTML = '';
+  document.getElementById('resetToken').value = '';
+  document.getElementById('resetToken').focus();
+}
+function hideResetModal() {
+  document.getElementById('resetModal').style.display = 'none';
+}
+async function doResetPassword() {
+  const adminToken = document.getElementById('resetToken').value.trim();
+  if (!adminToken) {
+    document.getElementById('resetMsg').innerHTML = '<div class="msg-error">Please enter VW_ADMIN_TOKEN</div>';
+    return;
+  }
+  const btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/admin/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminToken }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    hideResetModal();
+    document.getElementById('loginMsg').innerHTML = '<div class="msg" style="background:#0d4429;color:#3fb950;">Password reset successful. You can now log in with VW_ADMIN_TOKEN.</div>';
+    initLoginView();
+  } catch (err) {
+    document.getElementById('resetMsg').innerHTML = '<div class="msg-error">' + esc(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('resetToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doResetPassword();
+});
+
 function doLogin() {
-  token = document.getElementById('adminToken').value.trim();
-  if (!token) return;
-  fetch('/api/audit?page=1&limit=1', {
-    headers: { 'Authorization': 'Bearer ' + token }
-  }).then(r => {
-    if (!r.ok) throw new Error('Invalid token');
+  const password = document.getElementById('loginPassword').value.trim();
+  if (!password) return;
+  fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    token = data.token;
     sessionStorage.setItem('adminToken', token);
     document.getElementById('loginView').style.display = 'none';
     document.getElementById('mainView').style.display = 'block';
     loadPage(1);
   }).catch(err => {
-    document.getElementById('loginMsg').innerHTML = '<div class="msg-error">Login failed: ' + esc(err.message) + '</div>';
+    document.getElementById('loginMsg').innerHTML = '<div class="msg msg-error">Login failed: ' + esc(err.message) + '</div>';
   });
 }
 
 function doLogout() {
+  fetch('/api/admin/logout', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+  }).catch(() => {});
   sessionStorage.removeItem('adminToken');
   token = '';
   document.getElementById('loginView').style.display = 'block';
   document.getElementById('mainView').style.display = 'none';
+  initLoginView();
 }
 
-document.getElementById('adminToken').addEventListener('keydown', e => {
+document.getElementById('loginPassword').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
 
@@ -230,6 +321,8 @@ function toggleAutoRefresh() {
 }
 
 // --- Init ---
+initLoginView();
+
 if (token) {
   fetch('/api/audit?page=1&limit=1', {
     headers: { 'Authorization': 'Bearer ' + token }

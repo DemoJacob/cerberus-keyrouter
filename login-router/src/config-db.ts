@@ -124,6 +124,10 @@ export function updateSetting(key: string, value: string): void {
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
 }
 
+export function deleteSetting(key: string): void {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
 // --- Accounts ---
 
 export function getAccounts(): Account[] {

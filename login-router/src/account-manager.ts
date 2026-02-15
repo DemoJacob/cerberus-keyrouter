@@ -454,10 +454,14 @@ export async function unlockAdvancedAccount(accountId: string, masterPassword: s
   // Cache in memory (8h TTL)
   cacheMasterPassword(accountId, masterPassword);
 
-  // Start bw serve (will use cached password)
-  await startBwServe(account);
-  console.log(`[account-manager] Advanced account ${account.email} unlocked successfully`);
-  await notifyUnlockSuccess(account.email);
+  // Start bw serve in background (non-blocking) — frontend will poll unlock-status
+  startBwServe(account).then(() => {
+    console.log(`[account-manager] Advanced account ${account.email} unlocked successfully`);
+    notifyUnlockSuccess(account.email);
+  }).catch((err) => {
+    console.error(`[account-manager] Failed to start bw serve for ${account.email}:`, (err as Error).message);
+    clearCachedMasterPassword(accountId);
+  });
 }
 
 export function isAccountUnlocked(accountId: string): boolean {

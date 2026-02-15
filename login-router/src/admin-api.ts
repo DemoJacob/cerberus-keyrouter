@@ -1,6 +1,7 @@
+import crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import {
-  getSettings, updateSetting, getAccounts, getAccountById,
+  getSettings, updateSetting, deleteSetting, getSetting, getAccounts, getAccountById,
   updateAccount, type Account,
 } from './config-db.js';
 import {
@@ -12,6 +13,23 @@ import {
   approveByCode, getPendingApprovals as getPending, clearCachedMasterPassword,
 } from './approval-manager.js';
 import { testNotification, notifyUnlockNeeded } from './telegram-notifier.js';
+import { createAdminSession, destroyAdminSession } from './auth-middleware.js';
+
+const ADMIN_TOKEN = process.env.VW_ADMIN_TOKEN || '';
+
+// --- PBKDF2 password hashing for admin password ---
+
+const PBKDF2_ITERATIONS = 310_000;
+const PBKDF2_KEYLEN = 32;
+
+function hashAdminPassword(password: string, salt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, 'sha256', (err, key) => {
+      if (err) reject(err);
+      else resolve(key.toString('hex'));
+    });
+  });
+}
 
 function sanitizeAccount(account: Account): Record<string, unknown> {
   return {
@@ -32,7 +50,103 @@ function sanitizeAccount(account: Account): Record<string, unknown> {
 
 export function createAdminRouter(): Router {
   const router = Router();
-  // Auth is handled by authMiddleware in auth-middleware.ts
+
+  // --- Public auth endpoints (no session required) ---
+
+  router.get('/auth-status', (_req: Request, res: Response) => {
+    const hash = getSetting('admin_password_hash');
+    res.json({ passwordConfigured: !!hash });
+  });
+
+  router.post('/login', async (req: Request, res: Response) => {
+    const { password } = req.body;
+    if (!password || typeof password !== 'string') {
+      res.status(400).json({ error: 'password required' });
+      return;
+    }
+
+    const existingHash = getSetting('admin_password_hash');
+    const existingSalt = getSetting('admin_password_salt');
+
+    if (existingHash && existingSalt) {
+      // Password has been configured — verify against stored hash
+      const computed = await hashAdminPassword(password, existingSalt);
+      if (computed !== existingHash) {
+        res.status(401).json({ error: 'Invalid password' });
+        return;
+      }
+      const token = createAdminSession();
+      res.json({ ok: true, token, firstLogin: false });
+    } else {
+      // No password configured yet — verify against VW_ADMIN_TOKEN
+      if (!ADMIN_TOKEN) {
+        res.status(503).json({ error: 'VW_ADMIN_TOKEN not configured' });
+        return;
+      }
+      if (password !== ADMIN_TOKEN) {
+        res.status(401).json({ error: 'Invalid admin token' });
+        return;
+      }
+      const token = createAdminSession();
+      res.json({ ok: true, token, firstLogin: true });
+    }
+  });
+
+  router.post('/reset-password', (req: Request, res: Response) => {
+    const { adminToken } = req.body;
+    if (!adminToken || typeof adminToken !== 'string') {
+      res.status(400).json({ error: 'adminToken required' });
+      return;
+    }
+    if (!ADMIN_TOKEN) {
+      res.status(503).json({ error: 'VW_ADMIN_TOKEN not configured' });
+      return;
+    }
+    if (adminToken !== ADMIN_TOKEN) {
+      res.status(401).json({ error: 'Invalid admin token' });
+      return;
+    }
+    deleteSetting('admin_password_hash');
+    deleteSetting('admin_password_salt');
+    console.log('[admin-api] Admin password has been reset via VW_ADMIN_TOKEN');
+    res.json({ ok: true });
+  });
+
+  // --- Protected endpoints (session required, enforced by authMiddleware) ---
+
+  router.post('/set-password', async (req: Request, res: Response) => {
+    const { password, confirmPassword } = req.body;
+    if (!password || typeof password !== 'string') {
+      res.status(400).json({ error: 'password required' });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+    if (password !== confirmPassword) {
+      res.status(400).json({ error: 'Passwords do not match' });
+      return;
+    }
+
+    const salt = crypto.randomBytes(32).toString('hex');
+    const hash = await hashAdminPassword(password, salt);
+
+    updateSetting('admin_password_hash', hash);
+    updateSetting('admin_password_salt', salt);
+
+    console.log('[admin-api] Admin password has been set/updated');
+    res.json({ ok: true });
+  });
+
+  router.post('/logout', (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+    if (token) {
+      destroyAdminSession(token);
+    }
+    res.json({ ok: true });
+  });
 
   // --- Settings ---
 
@@ -189,7 +303,7 @@ export function createAdminRouter(): Router {
     }
     try {
       await unlockAdvancedAccount(id, masterPassword);
-      res.json({ ok: true, message: 'Account unlocked and bw serve started' });
+      res.json({ ok: true, message: 'Password verified, vault service starting...' });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
