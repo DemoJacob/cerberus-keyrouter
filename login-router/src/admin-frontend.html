@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cerberus Admin</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 16px; color: #58a6ff; }
+  h2 { font-size: 1.1rem; margin: 24px 0 12px; color: #8b949e; }
+
+  /* Login */
+  #loginView { max-width: 400px; margin: 80px auto; }
+  #loginView h1 { text-align: center; margin-bottom: 24px; }
+
+  /* Forms */
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 0.82rem; color: #8b949e; margin-bottom: 4px; }
+  input[type="text"], input[type="password"], input[type="email"] {
+    width: 100%; background: #161b22; border: 1px solid #30363d; color: #e1e4e8;
+    padding: 8px 12px; border-radius: 6px; font-size: 0.9rem;
+  }
+  input::placeholder { color: #484f58; }
+
+  .btn { background: #21262d; border: 1px solid #30363d; color: #e1e4e8; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  .btn:hover { background: #30363d; }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn-primary:hover { background: #388bfd; }
+  .btn-danger { background: #4a1518; border-color: #f85149; color: #f85149; }
+  .btn-danger:hover { background: #6e2124; }
+  .btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* Settings */
+  .settings-row { display: flex; gap: 10px; align-items: end; margin-bottom: 16px; }
+  .settings-row .form-group { flex: 1; margin: 0; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 8px; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.5px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+  .badge-active { background: #0d4429; color: #3fb950; }
+  .badge-disabled { background: #4a3012; color: #d29922; }
+  .badge-running { background: #0d4429; color: #3fb950; }
+  .badge-stopped { background: #4a1518; color: #f85149; }
+
+  .token-cell { font-family: monospace; font-size: 0.75rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .token-cell:hover { color: #58a6ff; }
+
+  .actions { display: flex; gap: 4px; }
+
+  /* Modal */
+  .modal-bg { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center; }
+  .modal-bg.show { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; width: 480px; max-width: 90vw; }
+  .modal h2 { margin-top: 0; color: #e1e4e8; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
+  .msg-error { background: #4a1518; color: #f85149; }
+  .msg-success { background: #0d4429; color: #3fb950; }
+  .msg-info { background: #0d3347; color: #58a6ff; }
+
+  .empty { text-align: center; padding: 40px; color: #484f58; }
+  .nav-links { margin-bottom: 20px; }
+  .nav-links a { color: #58a6ff; text-decoration: none; font-size: 0.85rem; margin-right: 16px; }
+  .nav-links a:hover { text-decoration: underline; }
+  .loading { color: #8b949e; font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- Login View -->
+<div id="loginView">
+  <h1>Cerberus Admin</h1>
+  <div id="loginMsg"></div>
+  <div class="form-group">
+    <label>Admin Token</label>
+    <input type="password" id="adminToken" placeholder="Enter VW_ADMIN_TOKEN..." />
+  </div>
+  <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doLogin()">Login</button>
+</div>
+
+<!-- Main View -->
+<div id="mainView" style="display:none">
+  <h1>Cerberus Admin</h1>
+  <div class="nav-links">
+    <a href="/audit">Audit Log</a>
+    <a href="#" onclick="doLogout()">Logout</a>
+  </div>
+  <div id="mainMsg"></div>
+
+  <!-- Settings -->
+  <h2>Settings</h2>
+  <div class="settings-row">
+    <div class="form-group">
+      <label>Vaultwarden URL (default for all accounts)</label>
+      <input type="text" id="settingVwUrl" placeholder="https://vaultwarden:80" />
+    </div>
+    <button class="btn" onclick="saveSettings()">Save</button>
+  </div>
+
+  <!-- Accounts -->
+  <h2>
+    Accounts
+    <button class="btn btn-primary btn-sm" style="margin-left:12px" onclick="showAddModal()">+ Add Account</button>
+  </h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Bearer Token</th>
+        <th>Status</th>
+        <th>bw serve</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="accountsBody">
+      <tr><td colspan="6" class="empty loading">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Add Account Modal -->
+<div class="modal-bg" id="addModal">
+  <div class="modal">
+    <h2>Add Account</h2>
+    <div id="addMsg"></div>
+    <div class="form-group">
+      <label>Email *</label>
+      <input type="email" id="addEmail" placeholder="user@example.com" />
+    </div>
+    <div class="form-group">
+      <label>Master Password *</label>
+      <input type="password" id="addMasterPassword" placeholder="Vault master password" />
+    </div>
+    <div class="form-group">
+      <label>Display Name (optional)</label>
+      <input type="text" id="addDisplayName" placeholder="My Account" />
+    </div>
+    <div class="form-group">
+      <label>Custom Bearer Token (optional, auto-generated if empty)</label>
+      <input type="text" id="addBearerToken" placeholder="Leave empty for auto-generate" />
+    </div>
+    <div class="form-group">
+      <label>Custom Vaultwarden URL (optional, uses global default if empty)</label>
+      <input type="text" id="addVwUrl" placeholder="https://your-domain.com" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="hideAddModal()">Cancel</button>
+      <button class="btn btn-primary" id="addSubmitBtn" onclick="doAddAccount()">Add Account</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let token = sessionStorage.getItem('adminToken') || '';
+
+function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch('/api/admin' + path, opts).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  });
+}
+
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<div class="msg msg-${type}">${text}</div>`;
+  if (type !== 'error') setTimeout(() => { el.innerHTML = ''; }, 5000);
+}
+
+function copyToken(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showMsg('mainMsg', 'Bearer token copied to clipboard', 'success');
+  });
+}
+
+// --- Auth ---
+
+function doLogin() {
+  token = document.getElementById('adminToken').value.trim();
+  if (!token) return;
+  api('GET', '/settings').then(() => {
+    sessionStorage.setItem('adminToken', token);
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadAll();
+  }).catch(err => {
+    showMsg('loginMsg', 'Login failed: ' + err.message, 'error');
+  });
+}
+
+function doLogout() {
+  sessionStorage.removeItem('adminToken');
+  token = '';
+  document.getElementById('loginView').style.display = 'block';
+  document.getElementById('mainView').style.display = 'none';
+}
+
+document.getElementById('adminToken').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// --- Load ---
+
+async function loadAll() {
+  await loadSettings();
+  await loadAccounts();
+}
+
+async function loadSettings() {
+  try {
+    const settings = await api('GET', '/settings');
+    document.getElementById('settingVwUrl').value = settings.vaultwarden_url || '';
+  } catch (err) {
+    showMsg('mainMsg', 'Failed to load settings: ' + err.message, 'error');
+  }
+}
+
+async function saveSettings() {
+  const url = document.getElementById('settingVwUrl').value.trim();
+  try {
+    await api('PUT', '/settings', { key: 'vaultwarden_url', value: url });
+    showMsg('mainMsg', 'Settings saved', 'success');
+  } catch (err) {
+    showMsg('mainMsg', 'Failed: ' + err.message, 'error');
+  }
+}
+
+async function loadAccounts() {
+  try {
+    const accounts = await api('GET', '/accounts');
+    const body = document.getElementById('accountsBody');
+    if (accounts.length === 0) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">No accounts configured. Click "+ Add Account" to get started.</td></tr>';
+      return;
+    }
+    body.innerHTML = accounts.map(a => `<tr>
+      <td>${a.display_name || '-'}</td>
+      <td>${a.email}</td>
+      <td class="token-cell" title="Click to copy" onclick="copyToken('${a.bearer_token}')">${a.bearer_token}</td>
+      <td><span class="badge badge-${a.status}">${a.status}</span></td>
+      <td><span class="badge badge-${a.bw_serve_status.running ? 'running' : 'stopped'}">${a.bw_serve_status.running ? 'running' : 'stopped'}</span></td>
+      <td class="actions">
+        <button class="btn btn-sm" onclick="doTest('${a.id}')">Test</button>
+        <button class="btn btn-sm" onclick="doRestart('${a.id}')">Restart</button>
+        <button class="btn btn-sm" onclick="doToggle('${a.id}', '${a.status}')">${a.status === 'active' ? 'Disable' : 'Enable'}</button>
+        <button class="btn btn-sm btn-danger" onclick="doDelete('${a.id}', '${a.email}')">Delete</button>
+      </td>
+    </tr>`).join('');
+  } catch (err) {
+    document.getElementById('accountsBody').innerHTML = `<tr><td colspan="6" class="empty">Failed to load: ${err.message}</td></tr>`;
+  }
+}
+
+// --- Account actions ---
+
+async function doTest(id) {
+  try {
+    const result = await api('POST', `/accounts/${id}/test`);
+    showMsg('mainMsg', `Test: ${result.ok ? 'OK' : 'FAIL'} - ${result.message}`, result.ok ? 'success' : 'error');
+  } catch (err) {
+    showMsg('mainMsg', 'Test failed: ' + err.message, 'error');
+  }
+}
+
+async function doRestart(id) {
+  showMsg('mainMsg', 'Restarting bw serve...', 'info');
+  try {
+    await api('POST', `/accounts/${id}/restart`);
+    showMsg('mainMsg', 'bw serve restarted', 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', 'Restart failed: ' + err.message, 'error');
+  }
+}
+
+async function doToggle(id, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'disabled' : 'active';
+  try {
+    await api('PUT', `/accounts/${id}`, { status: newStatus });
+    showMsg('mainMsg', `Account ${newStatus}`, 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', 'Failed: ' + err.message, 'error');
+  }
+}
+
+async function doDelete(id, email) {
+  if (!confirm(`Delete account ${email}? This will stop its bw serve and remove all config.`)) return;
+  try {
+    await api('DELETE', `/accounts/${id}`);
+    showMsg('mainMsg', 'Account deleted', 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('mainMsg', 'Delete failed: ' + err.message, 'error');
+  }
+}
+
+// --- Add modal ---
+
+function showAddModal() {
+  document.getElementById('addModal').classList.add('show');
+  document.getElementById('addMsg').innerHTML = '';
+  document.getElementById('addEmail').value = '';
+  document.getElementById('addMasterPassword').value = '';
+  document.getElementById('addDisplayName').value = '';
+  document.getElementById('addBearerToken').value = '';
+  document.getElementById('addVwUrl').value = '';
+  document.getElementById('addEmail').focus();
+}
+
+function hideAddModal() {
+  document.getElementById('addModal').classList.remove('show');
+}
+
+async function doAddAccount() {
+  const email = document.getElementById('addEmail').value.trim();
+  const masterPassword = document.getElementById('addMasterPassword').value;
+  const displayName = document.getElementById('addDisplayName').value.trim() || undefined;
+  const bearerToken = document.getElementById('addBearerToken').value.trim() || undefined;
+  const vaultwardenUrl = document.getElementById('addVwUrl').value.trim() || undefined;
+
+  if (!email || !masterPassword) {
+    showMsg('addMsg', 'Email and Master Password are required', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('addSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Registering...';
+  document.getElementById('addMsg').innerHTML = '<div class="msg msg-info">Connecting to Vaultwarden, fetching API key, starting bw serve... This may take 30-60 seconds.</div>';
+
+  try {
+    const result = await api('POST', '/accounts', { email, masterPassword, displayName, bearerToken, vaultwardenUrl });
+    hideAddModal();
+    showMsg('mainMsg', `Account added! Bearer token: <code style="user-select:all;cursor:pointer" onclick="copyToken(\'${result.account.bearer_token}\')">${result.account.bearer_token}</code>`, 'success');
+    loadAccounts();
+  } catch (err) {
+    showMsg('addMsg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add Account';
+  }
+}
+
+// --- Init ---
+
+if (token) {
+  api('GET', '/settings').then(() => {
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadAll();
+  }).catch(() => {
+    sessionStorage.removeItem('adminToken');
+    token = '';
+  });
+}
+</script>
+</body>
+</html>

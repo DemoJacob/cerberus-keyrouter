@@ -7,6 +7,7 @@ import { executeSteps, getCurrentPageUrl } from './browser-executor.js';
 import { logAudit } from './audit-logger.js';
 import { checkRateLimit, recordAttempt } from './rate-limiter.js';
 import { verifyUrl } from './url-verifier.js';
+import type { Account } from './config-db.js';
 
 // --- Step type definitions ---
 
@@ -52,7 +53,10 @@ export type Step = z.infer<typeof StepSchema>;
 
 // --- MCP Tool Registration ---
 
-export function registerTools(server: McpServer): void {
+export function registerTools(server: McpServer, account?: Account): void {
+  const bwServePort = account?.bw_serve_port;
+  const accountLabel = account ? ` [${account.email}]` : '';
+
   server.tool(
     'secure_login',
     'Execute a login sequence on the browser. Uses placeholders like {{email}}, {{username}}, {{password}}, {{totp}} that are replaced with real credentials locally. The LLM never sees the actual passwords. Use "type" action instead of "fill" for sites with frameworks (React, Angular) that need character-by-character input to trigger change events.',
@@ -96,8 +100,8 @@ export function registerTools(server: McpServer): void {
           };
         }
 
-        // 3. Fetch credentials from vault
-        credentials = await getCredentials(vaultItem);
+        // 3. Fetch credentials from vault (using account's bw serve port)
+        credentials = await getCredentials(vaultItem, bwServePort);
 
         // 4. Verify URL matches vault URI
         try {
@@ -210,7 +214,7 @@ export function registerTools(server: McpServer): void {
     async () => {
       const startTime = Date.now();
       try {
-        const items = await listItems();
+        const items = await listItems(bwServePort);
         logAudit({
           action: 'list_vault_items',
           result: 'success',

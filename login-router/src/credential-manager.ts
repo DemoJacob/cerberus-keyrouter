@@ -4,7 +4,6 @@ import type { Credentials } from './placeholder.js';
 
 const execFileAsync = promisify(execFile);
 
-const BW_SERVE_URL = process.env.BW_SERVE_URL || 'http://127.0.0.1:8087';
 const USE_BW_EXEC = process.env.USE_BW_EXEC === 'true';
 
 interface BwItem {
@@ -31,15 +30,19 @@ interface BwObjectResponse {
 
 // --- bw serve REST API (primary) ---
 
-async function bwServeSync(): Promise<void> {
-  const res = await fetch(`${BW_SERVE_URL}/sync`, { method: 'POST' });
+function bwServeUrl(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+async function bwServeSync(port: number): Promise<void> {
+  const res = await fetch(`${bwServeUrl(port)}/sync`, { method: 'POST' });
   if (!res.ok) {
     console.warn('bw serve sync failed:', res.status);
   }
 }
 
-async function bwServeGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BW_SERVE_URL}${path}`);
+async function bwServeGet<T>(port: number, path: string): Promise<T> {
+  const res = await fetch(`${bwServeUrl(port)}${path}`);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`bw serve error ${res.status}: ${text.slice(0, 200)}`);
@@ -47,9 +50,10 @@ async function bwServeGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function getCredentialsViaServe(vaultItemName: string): Promise<Credentials> {
-  await bwServeSync();
+async function getCredentialsViaServe(vaultItemName: string, port: number): Promise<Credentials> {
+  await bwServeSync(port);
   const searchRes = await bwServeGet<BwListResponse>(
+    port,
     `/list/object/items?search=${encodeURIComponent(vaultItemName)}`
   );
 
@@ -71,19 +75,19 @@ async function getCredentialsViaServe(vaultItemName: string): Promise<Credential
 
   // Get username
   try {
-    const usernameRes = await bwServeGet<BwObjectResponse>(`/object/username/${item.id}`);
+    const usernameRes = await bwServeGet<BwObjectResponse>(port, `/object/username/${item.id}`);
     credentials.username = usernameRes.data?.data;
   } catch { /* optional field */ }
 
   // Get password
   try {
-    const passwordRes = await bwServeGet<BwObjectResponse>(`/object/password/${item.id}`);
+    const passwordRes = await bwServeGet<BwObjectResponse>(port, `/object/password/${item.id}`);
     credentials.password = passwordRes.data?.data;
   } catch { /* optional field */ }
 
   // Get TOTP
   try {
-    const totpRes = await bwServeGet<BwObjectResponse>(`/object/totp/${item.id}`);
+    const totpRes = await bwServeGet<BwObjectResponse>(port, `/object/totp/${item.id}`);
     credentials.totp = totpRes.data?.data;
   } catch { /* optional field - not all items have TOTP */ }
 
@@ -94,9 +98,9 @@ async function getCredentialsViaServe(vaultItemName: string): Promise<Credential
   return credentials;
 }
 
-async function listItemsViaServe(): Promise<Array<{ name: string; username?: string; uri?: string }>> {
-  await bwServeSync();
-  const res = await bwServeGet<BwListResponse>('/list/object/items');
+async function listItemsViaServe(port: number): Promise<Array<{ name: string; username?: string; uri?: string }>> {
+  await bwServeSync(port);
+  const res = await bwServeGet<BwListResponse>(port, '/list/object/items');
   const items = res.data?.data ?? [];
 
   return items
@@ -158,16 +162,16 @@ async function listItemsViaExec(): Promise<Array<{ name: string; username?: stri
 
 // --- Public API ---
 
-export async function getCredentials(vaultItemName: string): Promise<Credentials> {
+export async function getCredentials(vaultItemName: string, bwServePort?: number): Promise<Credentials> {
   if (USE_BW_EXEC) {
     return getCredentialsViaExec(vaultItemName);
   }
-  return getCredentialsViaServe(vaultItemName);
+  return getCredentialsViaServe(vaultItemName, bwServePort ?? 8087);
 }
 
-export async function listItems(): Promise<Array<{ name: string; username?: string; uri?: string }>> {
+export async function listItems(bwServePort?: number): Promise<Array<{ name: string; username?: string; uri?: string }>> {
   if (USE_BW_EXEC) {
     return listItemsViaExec();
   }
-  return listItemsViaServe();
+  return listItemsViaServe(bwServePort ?? 8087);
 }

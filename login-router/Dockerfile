@@ -34,14 +34,15 @@ RUN npm ci --omit=dev || npm install --omit=dev
 # Copy compiled JS from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy audit frontend HTML to dist
+# Copy frontend HTML files to dist
 COPY src/audit-frontend.html ./dist/audit-frontend.html
+COPY src/admin-frontend.html ./dist/admin-frontend.html
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create data directory for audit DB
+# Create data directory for config + audit DBs
 RUN mkdir -p /app/data
 
 EXPOSE 8899

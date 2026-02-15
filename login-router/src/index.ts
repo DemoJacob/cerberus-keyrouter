@@ -10,17 +10,21 @@ import { startCdpProxy } from './cdp-proxy.js';
 import { initAuditDb, queryAuditLogs } from './audit-logger.js';
 import { initRateLimiter } from './rate-limiter.js';
 import { authMiddleware } from './auth-middleware.js';
+import { initConfigDb } from './config-db.js';
+import { startAllAccounts, migrateLegacyEnv } from './account-manager.js';
+import { createAdminRouter } from './admin-api.js';
 
 const PORT = parseInt(process.env.MCP_PORT || '8899', 10);
 const CDP_REMOTE_URL = process.env.CDP_URL || 'http://host.docker.internal:18800';
 
-// Initialize audit DB and rate limiter
+// Initialize databases
+initConfigDb();
 const auditDb = initAuditDb();
 initRateLimiter(auditDb);
 
 const app = express();
 
-// Auth middleware (pass-through if MCP_AUTH_TOKEN not set)
+// Auth middleware (multi-token: routes MCP calls to correct account)
 app.use(authMiddleware);
 
 // Only parse JSON for non-MCP routes; MCP transport handles its own parsing
@@ -29,12 +33,13 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
-function createMcpServer(): McpServer {
+function createMcpServer(req: express.Request): McpServer {
   const server = new McpServer({
     name: 'cerberus-login-router',
-    version: '0.1.0',
+    version: '0.2.0',
   });
-  registerTools(server);
+  // Pass account context so tools use the correct bw serve instance
+  registerTools(server, req.account);
   return server;
 }
 
@@ -46,19 +51,32 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Audit frontend
+// Static HTML pages
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-let auditHtml: string;
-try {
-  auditHtml = readFileSync(path.join(__dirname, 'audit-frontend.html'), 'utf-8');
-} catch {
-  auditHtml = '<html><body><h1>Audit frontend not found</h1></body></html>';
+
+function loadHtml(filename: string): string {
+  try {
+    return readFileSync(path.join(__dirname, filename), 'utf-8');
+  } catch {
+    return `<html><body><h1>${filename} not found</h1></body></html>`;
+  }
 }
+
+const auditHtml = loadHtml('audit-frontend.html');
+const adminHtml = loadHtml('admin-frontend.html');
 
 app.get('/audit', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(auditHtml);
 });
+
+app.get('/admin', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(adminHtml);
+});
+
+// Admin API
+app.use('/api/admin', createAdminRouter());
 
 // Audit API
 app.get('/api/audit', (req, res) => {
@@ -89,7 +107,7 @@ app.post('/mcp', async (req, res) => {
   }
 
   // New session — each session gets its own McpServer instance
-  const mcpServer = createMcpServer();
+  const mcpServer = createMcpServer(req);
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
@@ -127,12 +145,28 @@ app.delete('/mcp', async (req, res) => {
   await transport.handleRequest(req, res);
 });
 
-// Start CDP proxy first, then MCP server
-startCdpProxy(CDP_REMOTE_URL).then(() => {
+// Startup
+async function start(): Promise<void> {
+  // Migrate legacy env vars if present
+  await migrateLegacyEnv();
+
+  // Start all configured accounts' bw serve instances
+  await startAllAccounts();
+
+  // Start CDP proxy
+  await startCdpProxy(CDP_REMOTE_URL);
+
+  // Start HTTP server
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Cerberus login-router MCP server listening on 0.0.0.0:${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
     console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+    console.log(`Admin panel:  http://localhost:${PORT}/admin`);
     console.log(`Audit log:    http://localhost:${PORT}/audit`);
   });
+}
+
+start().catch((err) => {
+  console.error('Failed to start:', err);
+  process.exit(1);
 });

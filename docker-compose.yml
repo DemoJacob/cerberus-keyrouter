@@ -44,18 +44,25 @@ services:
     build: ./login-router
     restart: always
     environment:
-      - BW_URL=https://vaultwarden:80
-      - BW_CLIENTID=${BW_CLIENTID}
-      - BW_CLIENTSECRET=${BW_CLIENTSECRET}
-      - BW_MASTER_PASSWORD=${BW_MASTER_PASSWORD}
+      # Admin token (protects /admin panel + used for AES encryption of stored passwords)
+      - VW_ADMIN_TOKEN=${VW_ADMIN_TOKEN}
+      # Default Vaultwarden URL (used when accounts don't override)
+      - DEFAULT_VW_URL=https://vaultwarden:80
+      # CDP connection
       - CDP_URL=http://host.docker.internal:18800
       - MCP_PORT=8899
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      # Database paths
+      - CONFIG_DB_PATH=/app/data/config.db
       - AUDIT_DB_PATH=/app/data/audit.db
+      # Rate limiting
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-3}
       - RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-20}
       - RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-30}
+      # Legacy support (auto-migrated on first start, can be removed after)
+      - BW_CLIENTID=${BW_CLIENTID:-}
+      - BW_CLIENTSECRET=${BW_CLIENTSECRET:-}
+      - BW_MASTER_PASSWORD=${BW_MASTER_PASSWORD:-}
     volumes:
       - ./audit-data:/app/data
     ports:
