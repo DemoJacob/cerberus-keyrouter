@@ -1,6 +1,21 @@
+# Environment & secrets
+.env
+*.pem
+
+# Vaultwarden data
+vw-data/
+
+# Node
 node_modules/
 dist/
-.env
-vw-data/
-*.tgz
-*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker volumes
+certs/
