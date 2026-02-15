@@ -60,12 +60,13 @@ Cerberus KeyRouter solves this by keeping credentials in a local vault and injec
 - **Zero-knowledge for LLM** — passwords never enter the AI context
 - **Vaultwarden integration** — self-hosted, E2E encrypted password storage
 - **Multi-account support** — manage multiple Vaultwarden accounts, each with its own bearer token
-- **Admin panel** — web UI at `/admin` for account management, no manual API key copying needed
+- **Admin panel** — web UI at `/admin` for account management, with session-based auth and password protection
 - **Auto API key retrieval** — just provide email + master password, API keys are fetched automatically
 - **MCP protocol** — works with any MCP-compatible AI agent
 - **Placeholder pattern** — `{{email}}`, `{{password}}`, `{{totp}}`
 - **fill & type actions** — `fill` for standard forms, `type` (key-by-key) for React/SPA sites
 - **Smart tab matching** — finds the correct browser tab by URL
+- **Advanced protection mode** — optional manual unlock + Telegram approval for sensitive accounts
 - **Security hardened** — rate limiting, URL verification, audit logging, bearer token auth
 - **Audit log** — web UI at `/audit` to review all login attempts (no passwords logged)
 
@@ -77,7 +78,7 @@ Cerberus KeyRouter solves this by keeping credentials in a local vault and injec
 - Chrome/Chromium with remote debugging enabled (`--remote-debugging-port=18800`)
 - An MCP-compatible AI agent (e.g., [OpenClaw](https://github.com/openclaw/openclaw))
 
-### 1. Clone & Initial Config
+### 1. Clone & Configure
 
 ```bash
 git clone https://github.com/DemoJacob/cerberus-keyrouter.git
@@ -88,63 +89,63 @@ cp .env.example .env
 Edit `.env` — only one variable is required:
 
 ```bash
-VW_ADMIN_TOKEN=your_admin_password_here
+VW_ADMIN_TOKEN=your-secret-token-here
 ```
 
-This token protects the admin panel and is used to encrypt stored passwords.
+This token is used for initial admin login and as a fallback for password reset.
 
-### 2. Start Vaultwarden
-
-```bash
-docker compose up -d vaultwarden
-```
-
-Wait until healthy, then open `https://localhost:8443` (accept the self-signed certificate).
-
-### 3. Set Up Vaultwarden
-
-1. Create an account (set your master password)
-2. Add login items for your websites (name, username, password, URI)
-
-> **Note:** By default `SIGNUPS_ALLOWED=false` in `docker-compose.yml`. For first-time setup, change it to `true`, restart Vaultwarden, create your account, then change it back. Keeping it `true` is fine for personal/local use since the service is only accessible on localhost.
-
-### 4. Start All Services
+### 2. Start Services
 
 ```bash
 docker compose up --build -d
 ```
 
 This starts:
-- **Vaultwarden** on `https://localhost:8443` — password vault web UI
+- **Vaultwarden** on `https://localhost:8443` — password vault
 - **Login Router** on `http://localhost:8899` — MCP server + admin panel
 
 Verify: `curl http://localhost:8899/health` should return `{"status":"ok"}`
 
-### 5. Add Your Account via Admin Panel
+### 3. Create a Vaultwarden Account
 
-Open `http://localhost:8899/admin` and log in with your `VW_ADMIN_TOKEN`.
+Open `https://localhost:8443` in your browser (accept the self-signed certificate).
 
-1. (Optional) Update the **Vaultwarden URL** if using a custom domain or reverse proxy
+1. Click **Create Account**
+2. Set your email and master password
+3. Log in and add login items for your websites (name, username, password, URI)
+
+### 4. Set Up Admin Panel
+
+Open `http://localhost:8899/admin`:
+
+1. **First login** — enter your `VW_ADMIN_TOKEN` from `.env`
+2. **Set admin password** — a dialog will prompt you to create a personal password (min 8 characters). After this, `VW_ADMIN_TOKEN` can no longer be used for admin login
+3. Future logins use your new password
+
+> **Forgot password?** Click the "Forgot password?" link on the login page and enter your `VW_ADMIN_TOKEN` to reset.
+
+### 5. Add Your Vaultwarden Account
+
+In the admin panel:
+
+1. (Optional) Update the **Vaultwarden URL** if using a custom domain
 2. Click **+ Add Account**
 3. Enter your Vaultwarden **email** and **master password**
 4. The system will automatically:
-   - Connect to Vaultwarden
-   - Fetch your API key (client_id + client_secret)
+   - Connect to Vaultwarden and fetch your API key
    - Start a dedicated `bw serve` process
    - Generate a unique **bearer token** for MCP calls
-5. Copy the bearer token — you'll need it for your AI agent config
-
-No manual API key copying needed! The admin panel handles everything.
+5. Copy the bearer token (click the token cell or use the **MCP** button to copy a ready-to-use MCP config)
 
 ### 6. Connect Your AI Agent
 
-Add to your MCP configuration, using the bearer token from step 5:
+Add to your MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "cerberus": {
-      "baseUrl": "http://localhost:8899/mcp",
+      "url": "http://localhost:8899/mcp",
       "headers": {
         "Authorization": "Bearer <your-account-bearer-token>"
       }
@@ -160,7 +161,6 @@ Add to your MCP configuration, using the bearer token from step 5:
 curl http://localhost:8899/health
 
 # List available logins (no passwords shown)
-# Replace <TOKEN> with your account's bearer token
 curl http://localhost:8899/mcp \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
@@ -170,16 +170,25 @@ curl http://localhost:8899/mcp \
 
 ## Admin Panel
 
-Access at `http://localhost:8899/admin` (login with `VW_ADMIN_TOKEN`).
+Access at `http://localhost:8899/admin`.
+
+**Authentication:**
+- First login uses `VW_ADMIN_TOKEN`, then you set a personal password (PBKDF2-SHA256 hashed)
+- Sessions last 8 hours
+- Password can be changed anytime from Settings
+- Forgot password? Reset with `VW_ADMIN_TOKEN` on the login page
 
 **Features:**
-- **Settings** — configure default Vaultwarden URL (supports custom domains / reverse proxies)
+- **Settings** — configure default Vaultwarden URL, Telegram notifications
 - **Accounts** — add, test, restart, disable, or delete Vaultwarden accounts
 - **Bearer tokens** — each account gets a unique token; click to copy
+- **MCP config** — one-click copy of ready-to-use MCP JSON config
+- **Protection modes** — Standard (auto-unlock) or Advanced (manual unlock + Telegram approval)
 - **bw serve status** — see which accounts are running
 
-**Adding multiple accounts:**
-Each account gets its own `bw serve` process on a unique port, fully isolated. Different AI agents (or different users) can use different bearer tokens to access different vaults.
+**Additional pages:**
+- `/approve` — mobile-friendly page for unlocking advanced-mode accounts and approving login requests
+- `/audit` — searchable audit log of all login attempts
 
 ## MCP Tools
 
@@ -244,7 +253,9 @@ Some sites have multi-step login flows. Handle these by splitting into separate 
 - **Credentials cleared after use** — memory is zeroed immediately after injection
 - **Localhost only** — MCP server binds to `0.0.0.0:8899` inside Docker, exposed only on localhost
 - **Vaultwarden E2E encryption** — data at rest is encrypted; without the master password, it's unreadable
-- **AES-256-GCM encryption** — stored master passwords are encrypted with the admin token as key
+- **AES-256-GCM encryption** — stored master passwords are encrypted with an auto-generated key (independent of admin token)
+- **PBKDF2-SHA256 admin password** — admin panel password is hashed with 310k iterations, never stored in plaintext
+- **Session-based auth** — admin API uses server-side sessions (8h TTL), not raw tokens
 - **Instruction sequences, not scripts** — only predefined actions (fill/type/click/wait/select), no arbitrary JS execution
 - **Placeholder injection prevention** — `{{password}}` is only allowed in fill/type `value` fields; rejected in selectors
 
@@ -252,23 +263,24 @@ Some sites have multi-step login flows. Handle these by splitting into separate 
 
 | Threat | Mitigation |
 |--------|------------|
-| Prompt injection → login to phishing site | Vaultwarden acts as implicit allowlist; URL verification via CDP |
+| Prompt injection to login to phishing site | Vaultwarden acts as implicit allowlist; URL verification via CDP |
 | Unauthorized MCP access | Per-account bearer token authentication |
 | Credential abuse / repeated attempts | Rate limiting (3/min, 20/hr) + cooldown after failures |
 | URL spoofing | Login router reads actual browser URL via CDP, matches against vault URI |
 | Missing audit trail | Structured audit logging at `/audit` (no passwords in logs) |
-| Stored password leakage | Master passwords encrypted with AES-256-GCM (key = admin token) |
+| Stored password leakage | Master passwords encrypted with AES-256-GCM (auto-generated key) |
+| Admin panel brute force | PBKDF2-SHA256 hashed password, session-based auth |
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VW_ADMIN_TOKEN` | Yes | Admin panel password + encryption key for stored master passwords |
+| `VW_ADMIN_TOKEN` | Yes | Initial admin login token and password reset fallback |
 | `RATE_LIMIT_PER_MINUTE` | No | Max login attempts per vault item per minute (default: 3) |
 | `RATE_LIMIT_PER_HOUR` | No | Max login attempts per vault item per hour (default: 20) |
 | `RATE_LIMIT_COOLDOWN_SECONDS` | No | Cooldown after failed attempt (default: 30) |
 
-All other configuration (Vaultwarden URL, accounts, bearer tokens) is managed via the admin panel.
+All other configuration (Vaultwarden URL, accounts, bearer tokens, Telegram) is managed via the admin panel.
 
 ### Upgrading from v0.1
 
@@ -280,7 +292,6 @@ If you're upgrading from the previous version with `BW_CLIENTID`, `BW_CLIENTSECR
 
 ## Roadmap
 
-- [ ] Human-in-the-loop confirmation (approval via Telegram/Slack for sensitive sites)
 - [ ] Cookie caching (login once, reuse session)
 - [ ] Support for OpenClaw snapshot ref IDs (alongside CSS selectors)
 - [ ] Multi-agent framework support
