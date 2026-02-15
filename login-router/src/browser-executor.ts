@@ -1,7 +1,9 @@
 import { chromium, type Browser, type Page } from 'playwright-core';
 import type { Step } from './mcp-handler.js';
+import { CDP_PROXY_URL } from './cdp-proxy.js';
 
-const CDP_URL = process.env.CDP_URL || 'http://127.0.0.1:18800';
+// Always connect via the local CDP proxy which rewrites Host header
+const CDP_URL = CDP_PROXY_URL;
 const STEP_TIMEOUT = 10_000;
 const MAX_CONNECT_RETRIES = 2;
 const ERROR_MESSAGE_MAX_LENGTH = 200;

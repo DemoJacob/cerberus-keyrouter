@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { registerTools } from './mcp-handler.js';
+import { startCdpProxy } from './cdp-proxy.js';
 
 const PORT = parseInt(process.env.MCP_PORT || '8899', 10);
+const CDP_REMOTE_URL = process.env.CDP_URL || 'http://host.docker.internal:18800';
 
 const app = express();
 
@@ -80,8 +82,11 @@ app.delete('/mcp', async (req, res) => {
   await transport.handleRequest(req, res);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Cerberus login-router MCP server listening on 0.0.0.0:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+// Start CDP proxy first, then MCP server
+startCdpProxy(CDP_REMOTE_URL).then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Cerberus login-router MCP server listening on 0.0.0.0:${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+  });
 });

@@ -32,11 +32,36 @@ services:
     depends_on:
       init-certs:
         condition: service_completed_successfully
+    networks:
+      - secure-net
     healthcheck:
       test: ["CMD", "curl", "-kf", "https://localhost:80/alive"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  login-router:
+    build: ./login-router
+    restart: always
+    environment:
+      - BW_URL=https://vaultwarden:80
+      - BW_CLIENTID=${BW_CLIENTID}
+      - BW_CLIENTSECRET=${BW_CLIENTSECRET}
+      - BW_MASTER_PASSWORD=${BW_MASTER_PASSWORD}
+      - CDP_URL=http://host.docker.internal:18800
+      - MCP_PORT=8899
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    ports:
+      - "8899:8899"
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+    networks:
+      - secure-net
+
 volumes:
   certs:
+
+networks:
+  secure-net:
+    driver: bridge
