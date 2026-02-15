@@ -1,23 +1,36 @@
 import crypto from 'node:crypto';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   getActiveAccounts, getAccountById, addAccount, removeAccount as dbRemoveAccount,
   updateAccount, allocatePort, generateId, getSetting, updateSetting, type Account,
 } from './config-db.js';
 
-const ADMIN_TOKEN = process.env.VW_ADMIN_TOKEN || '';
-const ENCRYPTION_CHECK_SENTINEL = 'cerberus-ok';
+// Encryption key is auto-generated and stored in a file, completely independent
+// of VW_ADMIN_TOKEN. This means changing the admin token never affects encrypted data.
+const KEY_PATH = process.env.ENCRYPTION_KEY_PATH || '/app/data/encryption.key';
+
+let encryptionKey: Buffer;
+
+function loadOrCreateEncryptionKey(): Buffer {
+  if (existsSync(KEY_PATH)) {
+    const hex = readFileSync(KEY_PATH, 'utf8').trim();
+    console.log('[account-manager] Encryption key loaded from', KEY_PATH);
+    return Buffer.from(hex, 'hex');
+  }
+  // First run — generate a random 256-bit key
+  const key = crypto.randomBytes(32);
+  writeFileSync(KEY_PATH, key.toString('hex'), { mode: 0o600 });
+  console.log('[account-manager] New encryption key generated at', KEY_PATH);
+  return key;
+}
 
 // --- AES-256-GCM encryption for master passwords ---
 
-function deriveKey(): Buffer {
-  return crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
-}
-
 export function encryptPassword(plaintext: string): string {
-  const key = deriveKey();
+  ensureEncryption();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   // Format: base64(iv + tag + ciphertext)
@@ -25,50 +38,24 @@ export function encryptPassword(plaintext: string): string {
 }
 
 export function decryptPassword(ciphertext: string): string {
-  const key = deriveKey();
+  ensureEncryption();
   const data = Buffer.from(ciphertext, 'base64');
   const iv = data.subarray(0, 12);
   const tag = data.subarray(12, 28);
   const encrypted = data.subarray(28);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, iv);
   decipher.setAuthTag(tag);
   return decipher.update(encrypted) + decipher.final('utf8');
 }
 
-// --- Encryption key validation ---
-// Ensures VW_ADMIN_TOKEN hasn't changed since accounts were created.
-// If it changed, encrypted master passwords are unrecoverable.
-
-export function validateEncryptionKey(): void {
-  const stored = getSetting('encryption_check');
-
-  if (!stored) {
-    // First run or no accounts yet — store the check value
-    const check = encryptPassword(ENCRYPTION_CHECK_SENTINEL);
-    updateSetting('encryption_check', check);
-    console.log('[account-manager] Encryption key fingerprint stored');
-    return;
+export function initEncryption(): void {
+  if (!encryptionKey) {
+    encryptionKey = loadOrCreateEncryptionKey();
   }
+}
 
-  // Verify we can decrypt with current admin token
-  try {
-    const decrypted = decryptPassword(stored);
-    if (decrypted !== ENCRYPTION_CHECK_SENTINEL) {
-      throw new Error('mismatch');
-    }
-  } catch {
-    console.error('');
-    console.error('╔══════════════════════════════════════════════════════════════╗');
-    console.error('║  FATAL: VW_ADMIN_TOKEN has changed since accounts were      ║');
-    console.error('║  created. All encrypted master passwords are unrecoverable. ║');
-    console.error('║                                                              ║');
-    console.error('║  Options:                                                    ║');
-    console.error('║  1. Restore the original VW_ADMIN_TOKEN in .env              ║');
-    console.error('║  2. Delete /app/data/config.db and re-add accounts           ║');
-    console.error('╚══════════════════════════════════════════════════════════════╝');
-    console.error('');
-    process.exit(1);
-  }
+function ensureEncryption(): void {
+  if (!encryptionKey) initEncryption();
 }
 
 // --- PBKDF2 double hash (Bitwarden protocol) ---
@@ -382,8 +369,8 @@ export async function testAccount(id: string): Promise<{ ok: boolean; message: s
 // --- Startup: restore all active accounts ---
 
 export async function startAllAccounts(): Promise<void> {
-  // Verify admin token matches encryption key before touching any passwords
-  validateEncryptionKey();
+  // Load or create encryption key (independent of admin token)
+  initEncryption();
 
   const accounts = getActiveAccounts();
   if (accounts.length === 0) {
