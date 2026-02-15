@@ -1,3 +1,13 @@
+// Prevent unhandled CDP/Playwright protocol errors from crashing the process
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  if (msg.includes('Protocol error') || msg.includes('Target closed') || msg.includes('Session closed')) {
+    console.error('[process] Suppressed CDP protocol error:', msg);
+    return;
+  }
+  console.error('[process] Unhandled rejection:', reason);
+});
+
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';

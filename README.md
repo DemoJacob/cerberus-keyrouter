@@ -276,19 +276,8 @@ Some sites have multi-step login flows. Handle these by splitting into separate 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `VW_ADMIN_TOKEN` | Yes | Initial admin login token and password reset fallback |
-| `RATE_LIMIT_PER_MINUTE` | No | Max login attempts per vault item per minute (default: 3) |
-| `RATE_LIMIT_PER_HOUR` | No | Max login attempts per vault item per hour (default: 20) |
-| `RATE_LIMIT_COOLDOWN_SECONDS` | No | Cooldown after failed attempt (default: 30) |
 
-All other configuration (Vaultwarden URL, accounts, bearer tokens, Telegram) is managed via the admin panel.
-
-### Upgrading from v0.1
-
-If you're upgrading from the previous version with `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_MASTER_PASSWORD` in `.env`:
-
-- These are **auto-migrated** on first start — a new account is created in the config DB with a generated bearer token (printed to logs)
-- After migration, you can remove these variables from `.env`
-- Re-add the account properly via the admin panel with the correct email for best results
+All other configuration (Vaultwarden URL, accounts, bearer tokens, Telegram, rate limiting) is managed via the admin panel or has sensible defaults in `docker-compose.yml`.
 
 ## Roadmap
 
