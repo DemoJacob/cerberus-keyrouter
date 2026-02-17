@@ -162,10 +162,28 @@ export function registerTools(server: McpServer, account?: Account): void {
         // 4. Fetch credentials from vault (using account's bw serve port)
         credentials = await getCredentials(vaultItem, bwServePort);
 
-        // 4. Verify URL matches vault URI
+        // 4. Verify URL matches any vault URI
         try {
-          actualUrl = await getCurrentPageUrl(credentials.uri);
-          const urlResult = verifyUrl(actualUrl, credentials.uri);
+          const allUris = credentials.uris ?? (credentials.uri ? [credentials.uri] : []);
+          // Try to find a matching tab using any of the vault URIs
+          actualUrl = '';
+          let urlResult: { allowed: boolean; matchType: string; reason?: string } = { allowed: false, matchType: 'none' };
+          for (const uri of allUris) {
+            try {
+              const candidateUrl = await getCurrentPageUrl(uri);
+              if (candidateUrl && candidateUrl !== 'about:blank') {
+                const result = verifyUrl(candidateUrl, uri);
+                if (result.allowed) {
+                  actualUrl = candidateUrl;
+                  urlResult = result;
+                  break;
+                }
+                // Keep last non-empty URL for error reporting
+                if (!actualUrl) actualUrl = candidateUrl;
+                urlResult = result;
+              }
+            } catch { /* try next URI */ }
+          }
           urlMatchType = urlResult.matchType;
 
           if (!urlResult.allowed) {
@@ -200,8 +218,18 @@ export function registerTools(server: McpServer, account?: Account): void {
         // 5. Replace placeholders with real credentials
         resolvedSteps = replacePlaceholders(steps, credentials);
 
-        // 6. Execute browser steps via CDP (pass URI for tab matching)
-        const result = await executeSteps(resolvedSteps, credentials.uri);
+        // 6. Execute browser steps via CDP (pass matching URI for tab matching)
+        let matchingUri = credentials.uri ?? '';
+        if (actualUrl) {
+          try {
+            const actualHost = new URL(actualUrl).hostname;
+            const found = credentials.uris?.find(u => {
+              try { return actualHost.includes(new URL(u).hostname.replace(/^www\./, '')); } catch { return false; }
+            });
+            if (found) matchingUri = found;
+          } catch { /* use default */ }
+        }
+        const result = await executeSteps(resolvedSteps, matchingUri);
         stepsCompleted = result.stepsCompleted;
 
         const success = result.success;

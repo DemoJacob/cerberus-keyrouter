@@ -6,6 +6,7 @@ export interface Credentials {
   password?: string;
   totp?: string;
   uri?: string;
+  uris?: string[];
 }
 
 const PLACEHOLDER_REGEX = /\{\{(email|username|password|totp)\}\}/g;
@@ -25,7 +26,7 @@ export function replacePlaceholders(steps: Step[], credentials: Credentials): St
 
     const resolvedValue = fillStep.value.replace(PLACEHOLDER_REGEX, (match, key: string) => {
       // {{email}} falls back to username if email not explicitly set
-      const resolvedKey = key === 'email' ? (credentials.email ?? credentials.username) : credentials[key as keyof Credentials];
+      const resolvedKey = key === 'email' ? (credentials.email ?? credentials.username) : credentials[key as keyof Omit<Credentials, 'uris'>];
 
       if (resolvedKey === undefined || resolvedKey === null) {
         throw new Error(`Step ${i}: placeholder {{${key}}} has no corresponding credential`);

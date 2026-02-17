@@ -11,9 +11,12 @@ const ERROR_MESSAGE_MAX_LENGTH = 200;
 let browserInstance: Browser | null = null;
 
 async function getConnectedBrowser(): Promise<Browser> {
-  if (browserInstance?.isConnected()) {
-    return browserInstance;
+  // Always reconnect to get fresh page URLs from CDP
+  if (browserInstance) {
+    try { await browserInstance.close(); } catch { /* ignore */ }
+    browserInstance = null;
   }
+  // Reconnecting to CDP
 
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= MAX_CONNECT_RETRIES; attempt++) {
@@ -82,7 +85,12 @@ async function getActivePage(browser: Browser, targetUrl?: string, steps?: Step[
     } catch { /* fall through to default */ }
   }
 
-  return allPages[0];
+  // Prefer the last non-blank page (most recently opened)
+  const nonBlank = allPages.filter(p => {
+    const u = p.url();
+    return u && u !== 'about:blank' && !u.startsWith('chrome-error://');
+  });
+  return nonBlank.length > 0 ? nonBlank[nonBlank.length - 1] : allPages[allPages.length - 1];
 }
 
 export async function executeSteps(steps: Step[], targetUrl?: string): Promise<{ success: boolean; message: string; stepsCompleted: number }> {

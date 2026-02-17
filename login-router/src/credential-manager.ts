@@ -70,8 +70,9 @@ async function getCredentialsViaServe(vaultItemName: string, port: number): Prom
 
   const credentials: Credentials = {};
 
-  // Store URI from the item for tab matching
+  // Store all URIs from the item for tab matching
   credentials.uri = item.login?.uris?.[0]?.uri;
+  credentials.uris = item.login?.uris?.map(u => u.uri).filter(Boolean) as string[] | undefined;
 
   // Get username
   try {
