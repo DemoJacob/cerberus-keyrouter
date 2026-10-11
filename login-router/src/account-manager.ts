@@ -256,7 +256,7 @@ export async function registerAccount(
   const fetchOpts = { headers: {} as Record<string, string> };
 
   // Step 1: Prelogin
-  const preloginRes = await fetch(`${vwUrl}/api/accounts/prelogin`, {
+  const preloginRes = await fetch(`${vwUrl}/identity/accounts/prelogin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -435,7 +435,7 @@ export async function unlockAdvancedAccount(accountId: string, masterPassword: s
 
   // Verify password by computing hash and comparing
   const vwUrl = getVaultwardenUrl(account);
-  const preloginRes = await fetch(`${vwUrl}/api/accounts/prelogin`, {
+  const preloginRes = await fetch(`${vwUrl}/identity/accounts/prelogin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: account.email }),
